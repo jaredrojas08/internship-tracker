@@ -165,9 +165,27 @@ def read_listing_state(worksheet):
             "link_status": cell("Link Status"),
             "last_checked": cell("Last Checked"),
             "applied": cell("Applied?") in TRUTHY,
+            "applied_date": cell("Applied Date"),
             "remove": cell("Remove?") in TRUTHY,
         }
     return state
+
+
+def needs_follow_up(row, as_of=None):
+    """True for an application submitted long enough ago to be worth chasing.
+
+    Rows whose link has since gone DEAD or CLOSED are excluded — those aren't
+    waiting on a reply, they're over.
+    """
+    if not row.get("Applied?"):
+        return False
+    if row.get("Link Status") in ("DEAD", "CLOSED"):
+        return False
+    applied = _parse_date(row.get("Applied Date"))
+    if applied is None:
+        return False
+    as_of = as_of or today()
+    return (as_of - applied).days >= config.FOLLOW_UP_AFTER_DAYS
 
 
 def needs_link_check(existing, as_of=None):
@@ -236,9 +254,16 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
         if existing:
             date_added = existing["date_added"] or today_str
             applied = existing["applied"]
+            # Stamp the date the first time a row is seen as applied. The stamp
+            # is never cleared afterwards: unticking the box by accident should
+            # not silently destroy the record of when it was submitted.
+            applied_date = existing.get("applied_date", "")
+            if applied and not applied_date:
+                applied_date = today_str
         else:
             date_added = today_str
             applied = False
+            applied_date = ""
             newly_added.append(listing)
 
         # A fresh check wins; otherwise carry last week's verdict forward.
@@ -271,6 +296,7 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Last Checked": last_checked,
                 "Source": listing.source,
                 "Applied?": applied,
+                "Applied Date": applied_date,
                 "Remove?": False,
             }
         )
@@ -320,6 +346,7 @@ def rows_to_values(rows):
             row["Last Checked"],
             row["Source"],
             bool(row["Applied?"]),
+            row["Applied Date"],
             bool(row["Remove?"]),
         ]
         for row in rows
@@ -349,6 +376,7 @@ def read_program_state(worksheet):
         state[(org.lower(), opportunity.lower())] = {
             "date_added": cell("Date Added"),
             "applied": cell("Applied?") in TRUTHY,
+            "applied_date": cell("Applied Date"),
             "remove": cell("Remove?") in TRUTHY,
         }
     return state

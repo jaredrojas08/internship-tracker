@@ -37,6 +37,7 @@ LISTINGS_HEADERS = [
     "Last Checked",
     "Source",
     "Applied?",
+    "Applied Date",
     "Remove?",
 ]
 PROGRAMS_HEADERS = [
@@ -57,6 +58,9 @@ REMOVED_PROGRAMS_HEADERS = ["Organization", "Opportunity", "Date Removed"]
 # postings state one in machine-readable form, so it is mostly typed by hand;
 # the script fills it only when the row is still blank.
 USER_OWNED_COLUMNS = ("Applied?", "Remove?", "Deadline")
+
+# An application with no response after this long is worth chasing.
+FOLLOW_UP_AFTER_DAYS = 21
 
 NEW_STATUS_DAYS = 3  # a listing shows as NEW for this many days
 

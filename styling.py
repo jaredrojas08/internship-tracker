@@ -24,7 +24,8 @@ COL_LINK_STATUS = 10
 COL_LAST_CHECKED = 11
 COL_SOURCE = 12
 COL_APPLIED = 13
-COL_REMOVE = 14
+COL_APPLIED_DATE = 14
+COL_REMOVE = 15
 
 # Programs tab.
 COL_PROG_DEADLINE = 4
@@ -150,6 +151,7 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
     deadline_range = _grid(sheet_id, 1, num_rows + 1, COL_DEADLINE, COL_DEADLINE + 1)
     game_range = _grid(sheet_id, 1, num_rows + 1, COL_GAME, COL_GAME + 1)
     ls, ap, dl = A1_LINK_STATUS, A1_APPLIED, A1_DEADLINE
+    ad = _a1(COL_APPLIED_DATE)
 
     return [
         # Dead, closed, or past-deadline rows grey out entirely so they read as
@@ -175,6 +177,15 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         text_eq(game_range, "YES", PALETTE["deep_berry"], PALETTE["white"], True),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
         formula([applied_range], f"=${ap}2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
+        # An application sitting unanswered past the follow-up window.
+        formula(
+            [_grid(sheet_id, 1, num_rows + 1, COL_APPLIED_DATE, COL_APPLIED_DATE + 1)],
+            f"=AND(${ap}2=TRUE,ISNUMBER(${ad}2),"
+            f"${ad}2<=TODAY()-{config.FOLLOW_UP_AFTER_DAYS})",
+            PALETTE["dusty_rose"],
+            PALETTE["deep_berry"],
+            True,
+        ),
     ]
 
 
