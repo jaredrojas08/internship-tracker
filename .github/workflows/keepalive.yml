@@ -1,0 +1,43 @@
+name: Keepalive
+
+# GitHub disables scheduled workflows after 60 days with no repository
+# activity. This project is "done" — it can easily go months without a real
+# commit — so the daily tracker would silently stop. A tiny monthly commit
+# resets that clock.
+#
+# Runs on the 1st at 12:00 UTC, well inside the 60-day window even if a run
+# is skipped or delayed.
+
+on:
+  schedule:
+    - cron: '0 12 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Touch the keepalive marker and push
+        run: |
+          set -euo pipefail
+          # Commits are authored as Jared: this is his automation acting on his
+          # own repo, and the message makes the automation explicit.
+          git config user.name "jaredrojas08"
+          git config user.email "jaredrojas08@gmail.com"
+
+          date -u "+%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive
+
+          if git diff --quiet; then
+            echo "Nothing changed; skipping commit."
+            exit 0
+          fi
+
+          git add .github/last-keepalive
+          git commit -m "chore: automated keepalive to keep scheduled workflows enabled"
+          git push
