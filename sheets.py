@@ -264,6 +264,7 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Deadline": deadline,
                 "Date Added": date_added,
                 "Remote?": "YES" if listing.is_remote else "NO",
+                "Game?": "YES" if listing.is_game else "NO",
                 "Status": status_for(date_added, as_of),
                 "Link Status": status,
                 "Last Checked": last_checked,
@@ -277,7 +278,7 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
 
 
 def _sort_key(row):
-    """Applicable first, then NEW, then remote, then newest, then company.
+    """Applicable first, then NEW, then game, then remote, then newest, company.
 
     Dead and closed listings sink to the bottom rather than being deleted — the
     detection is good but not perfect, so they stay visible and reversible.
@@ -292,10 +293,11 @@ def _sort_key(row):
     if due and due < (row.get("_as_of") or today()):
         unapplicable = 1
     is_new = 0 if row["Status"] == "NEW" else 1
+    is_game = 0 if row.get("Game?") == "YES" else 1
     is_remote = 0 if row["Remote?"] == "YES" else 1
     added = _parse_date(row["Date Added"])
     recency = -added.toordinal() if added else 0
-    return (unapplicable, is_new, is_remote, recency, row["Company"].lower())
+    return (unapplicable, is_new, is_game, is_remote, recency, row["Company"].lower())
 
 
 def rows_to_values(rows):
@@ -309,6 +311,7 @@ def rows_to_values(rows):
             row["Deadline"],
             row["Date Added"],
             row["Remote?"],
+            row["Game?"],
             row["Status"],
             row["Link Status"],
             row["Last Checked"],

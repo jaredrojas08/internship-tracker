@@ -32,6 +32,10 @@ class Listing:
         return "remote" in self.location.lower()
 
     @property
+    def is_game(self):
+        return config.is_game_role(self.role)
+
+    @property
     def key(self):
         """Identity across runs. Row position is never used for this."""
         return (

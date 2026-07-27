@@ -29,6 +29,7 @@ LISTINGS_HEADERS = [
     "Deadline",
     "Date Added",
     "Remote?",
+    "Game?",
     "Status",
     "Link Status",
     "Last Checked",
@@ -133,6 +134,48 @@ ROLE_KEYWORDS = [
     # Tech-org roles that don't say "software".
     "information technology",
 ]
+
+# --- Game development priority ---------------------------------------------
+
+# Jared's specialty: Unity/C# game dev, a game design minor, and a game studio
+# internship. Roles matching these sort above everything except brand-new ones.
+#
+# "engine" is deliberately absent: it matches jet engines, search engines and
+# rules engines far more often than game engines. "game engine" is listed in
+# full instead.
+GAME_KEYWORDS = [
+    "game",
+    "gaming",
+    "gameplay",
+    "game engine",
+    "game design",
+    "level design",
+    "unity",
+    "unreal",
+    "godot",
+    "graphics",
+    "rendering",
+    "shader",
+    "animation",
+    "technical artist",
+    "virtual reality",
+    "augmented reality",
+    "mixed reality",
+    "vr",
+    "xr",
+    "3d",
+]
+
+_GAME_PATTERN = re.compile(
+    "|".join(rf"\b{re.escape(kw)}{'(?:s|es|ed|ing)?'}\b" for kw in GAME_KEYWORDS),
+    re.IGNORECASE,
+)
+
+
+def is_game_role(role_title):
+    """True if the role looks like game development work."""
+    return bool(_GAME_PATTERN.search(role_title))
+
 
 # Uppercase acronyms matched case-sensitively. "IT" cannot go in the list above:
 # case-insensitively it would match the English word "it", and its inflection

@@ -17,16 +17,22 @@ log = logging.getLogger(__name__)
 COL_APPLY_LINK = 3
 COL_DEADLINE = 4
 COL_REMOTE = 6
-COL_STATUS = 7
-COL_LINK_STATUS = 8
-COL_LAST_CHECKED = 9
-COL_APPLIED = 10
-COL_REMOVE = 11
+COL_GAME = 7
+COL_STATUS = 8
+COL_LINK_STATUS = 9
+COL_LAST_CHECKED = 10
+COL_APPLIED = 11
+COL_REMOVE = 12
 
-# A1-style letters for the columns referenced inside conditional formulas.
-A1_LINK_STATUS = "I"
-A1_APPLIED = "K"
-A1_DEADLINE = "E"
+
+def _a1(index):
+    """0-based column index -> A1 letter, for use inside conditional formulas."""
+    return chr(ord("A") + index)
+
+
+A1_LINK_STATUS = _a1(COL_LINK_STATUS)
+A1_APPLIED = _a1(COL_APPLIED)
+A1_DEADLINE = _a1(COL_DEADLINE)
 
 
 def _grid(sheet_id, start_row=0, end_row=None, start_col=0, end_col=None):
@@ -135,6 +141,7 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
 
     del data  # banding is handled natively by the table's rowsProperties
     deadline_range = _grid(sheet_id, 1, num_rows + 1, COL_DEADLINE, COL_DEADLINE + 1)
+    game_range = _grid(sheet_id, 1, num_rows + 1, COL_GAME, COL_GAME + 1)
     ls, ap, dl = A1_LINK_STATUS, A1_APPLIED, A1_DEADLINE
 
     return [
@@ -157,6 +164,8 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         ),
         text_eq(status_range, "NEW", PALETTE["dusty_rose"], bold=True),
         text_eq(status_range, "SEEN", PALETTE["muted_taupe"]),
+        # Game roles are the priority tier, so they get the strongest fill.
+        text_eq(game_range, "YES", PALETTE["deep_berry"], PALETTE["white"], True),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
         formula([applied_range], f"=${ap}2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
     ]
