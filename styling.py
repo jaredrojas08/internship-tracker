@@ -6,6 +6,7 @@ stack duplicates.
 """
 
 import logging
+from typing import Any
 
 import config
 from config import PALETTE, hex_to_rgb
@@ -30,7 +31,7 @@ def _grid(sheet_id, start_row=0, end_row=None, start_col=0, end_col=None):
 
 
 def _text_format(color=None, bold=False):
-    fmt = {"bold": bold}
+    fmt: dict[str, Any] = {"bold": bold}
     if color:
         fmt["foregroundColor"] = hex_to_rgb(color)
     return fmt
@@ -96,7 +97,7 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
     applied_range = _grid(sheet_id, 1, num_rows + 1, COL_APPLIED, COL_APPLIED + 1)
 
     def text_eq(ranges, value, bg, fg=None, bold=False):
-        fmt = {"backgroundColor": hex_to_rgb(bg)}
+        fmt: dict[str, Any] = {"backgroundColor": hex_to_rgb(bg)}
         if fg or bold:
             fmt["textFormat"] = _text_format(fg, bold)
         return {
@@ -108,7 +109,7 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         }
 
     def formula(ranges, expression, bg, fg=None, bold=False):
-        fmt = {"backgroundColor": hex_to_rgb(bg)}
+        fmt: dict[str, Any] = {"backgroundColor": hex_to_rgb(bg)}
         if fg or bold:
             fmt["textFormat"] = _text_format(fg, bold)
         return {
