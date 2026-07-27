@@ -25,8 +25,11 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | E | Date Added — when the script first saw it |
 | F | Remote? |
 | G | Status — `NEW` for 3 days, then `SEEN` |
-| H | **Applied?** — yours to toggle |
-| I | **Remove?** — check to delete the row |
+| H | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
+| I | **Applied?** — yours to toggle |
+| J | **Remove?** — check to delete the row |
+
+Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
 **Tab: Programs & Fellowships** — org, opportunity, link, type, deadline, date added.
 
@@ -38,9 +41,26 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 
 Check `Remove?` on anything you don't want. It disappears on the next run and won't come back.
 
+### Link checking
+
+Every run fetches each application URL and classifies it:
+
+| Value | Meaning | Reliability |
+|-------|---------|-------------|
+| `OPEN` | 200, no closure text found | good, but a live page can still be a closed role |
+| `CLOSED` | page says it's no longer accepting applications | high — the phrase list is deliberately specific |
+| `DEAD` | HTTP 404 or 410 | high |
+| `UNKNOWN` | JS-only page, bot-blocked, or timed out | no signal either way |
+
+**Nothing is ever auto-deleted.** Dead and closed listings sink to the bottom of the sheet and grey out, so a misclassification costs you a glance rather than a listing. Network errors and timeouts return `UNKNOWN`, never `DEAD` — a blip should not condemn a live posting.
+
+The honest limitation: a `200` does not prove a role is still open. Greenhouse, Lever and Ashby 404 properly when a job closes, so detection is reliable there. Workday and iCIMS ship a JavaScript shell with no readable text, which is why they come back `UNKNOWN` rather than being guessed at.
+
+Skip it with `--skip-links` when iterating locally; it adds roughly 30 seconds.
+
 ### Sort order
 
-`NEW` first, then remote, then newest, then alphabetical by company.
+Applicable first, then `NEW`, then remote, then newest, then alphabetical by company.
 
 New listings surface at the top for three days regardless of location; after that the sheet settles into remote-at-top. This is why row order changes between runs — the sheet is rebuilt each time, not appended to.
 
@@ -71,7 +91,8 @@ cp .env.example .env      # then fill it in
 ```bash
 ./venv/bin/python internship_tracker.py --dry-run   # preview, writes nothing
 ./venv/bin/python internship_tracker.py             # sync
-./venv/bin/python internship_tracker.py --no-style  # skip formatting
+./venv/bin/python internship_tracker.py --no-style   # skip formatting
+./venv/bin/python internship_tracker.py --skip-links # skip link checking (~30s faster)
 ```
 
 `--dry-run` is fully read-only: it won't create tabs or modify a single cell.
@@ -111,3 +132,8 @@ After editing, check the effect before syncing:
 - Missing/renamed columns in the source table → refuses to write rather than producing garbage
 - The source added an `Added` column after this was built; the parser treats it as optional
 - Formatting errors are caught after data is written, so a styling failure can't cost you listings
+- Link-check failures degrade to `UNKNOWN` per URL; one bad host can't fail the run
+
+### One trap worth recording
+
+The Sheets API's `deleteTable` deletes the table **and its data rows**. Rebuilding the table each run by delete-then-add silently emptied every text column while leaving the checkboxes behind. `styling.py` uses `updateTable` to resize in place and never issues `deleteTable`.
