@@ -113,11 +113,16 @@ ROLE_KEYWORDS = [
     "quantitative",
 ]
 
-# Two-letter tokens are the dangerous ones: a bare substring search for "ai"
-# matches Retail, Maintenance, Chair; "ml" matches HTML. Word boundaries on both
-# sides fix that. "genai" is listed explicitly since \bai\b won't catch it.
+# Matching rules, in tension with each other:
+#   - Bare substring search is too loose: "ai" matches Retail/Maintenance/Chair,
+#     "ml" matches HTML.
+#   - Strict \bkw\b is too tight: it misses "Platforms" and "Engineered".
+# So: word-boundary anchored, with an optional common inflection suffix. That
+# catches platforms/engineered/engineering while still rejecting Retail (ai+l)
+# and HTML (ht+ml). "genai" is listed explicitly since \bai\b won't reach it.
+_INFLECTIONS = r"(?:s|es|ed|ing)?"
 _ROLE_PATTERN = re.compile(
-    "|".join(rf"\b{re.escape(kw)}\b" for kw in ROLE_KEYWORDS),
+    "|".join(rf"\b{re.escape(kw)}{_INFLECTIONS}\b" for kw in ROLE_KEYWORDS),
     re.IGNORECASE,
 )
 
