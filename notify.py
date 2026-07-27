@@ -27,6 +27,10 @@ log = logging.getLogger(__name__)
 DISCORD_LIMIT = 1900  # leave headroom under Discord's 2000-character cap
 MAX_ITEMS = 10  # per section, so one busy day can't produce a wall of text
 
+# Discord rejects requests carrying urllib's default User-Agent with a bare
+# 403, so identifying the client is required, not cosmetic.
+USER_AGENT = "InternshipTracker (https://github.com/jaredrojas08/Internship-Tracker, 1.0)"
+
 
 def build_digest(rows, new_listings, dropped, as_of=None):
     """Return (subject, body) summarising what needs attention, or None.
@@ -177,16 +181,23 @@ def _date(value):
 
 def send(subject, body):
     """Deliver to whichever channels are configured. Never raises."""
-    delivered = []
+    delivered, attempted = [], []
+
     if os.environ.get("DISCORD_WEBHOOK_URL"):
+        attempted.append("discord")
         if _send_discord(subject, body):
             delivered.append("discord")
     if os.environ.get("SMTP_HOST") and os.environ.get("NOTIFY_EMAIL_TO"):
+        attempted.append("email")
         if _send_email(subject, body):
             delivered.append("email")
 
     if delivered:
         log.info("Digest sent via %s", ", ".join(delivered))
+    elif attempted:
+        # Configured but every channel failed — distinct from not configured,
+        # because the two need completely different fixes.
+        log.warning("Digest delivery failed on: %s", ", ".join(attempted))
     else:
         log.info("No notification channel configured; skipping digest.")
     return delivered
@@ -200,11 +211,27 @@ def _send_discord(subject, body):
     request = urllib.request.Request(
         os.environ["DISCORD_WEBHOOK_URL"],
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
         urllib.request.urlopen(request, timeout=15)
         return True
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode()[:200]
+        except Exception:  # noqa: BLE001 - the error body is best-effort
+            pass
+        if exc.code in (401, 403, 404):
+            log.warning(
+                "Discord rejected the webhook (HTTP %s). The URL is probably wrong, "
+                "revoked, or from a deleted channel. %s",
+                exc.code,
+                detail,
+            )
+        else:
+            log.warning("Discord delivery failed: HTTP %s %s", exc.code, detail)
+        return False
     except (urllib.error.URLError, OSError) as exc:
         log.warning("Discord delivery failed: %s", exc)
         return False
