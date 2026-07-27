@@ -1,0 +1,36 @@
+name: Update Internship Listings
+
+on:
+  schedule:
+    # 18:00 UTC daily = 2 PM ET during EDT, 1 PM ET during EST.
+    # GitHub's scheduler is best-effort and can lag under load.
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+# The job only reads the repo; all state lives in the Google Sheet.
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run internship tracker
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: python internship_tracker.py
