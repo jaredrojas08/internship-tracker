@@ -11,7 +11,9 @@ Nothing here ever deletes a row. A wrong DEAD costs a glance; a wrong deletion
 would silently lose a real listing.
 """
 
+import calendar
 import concurrent.futures
+import datetime as dt
 import logging
 import re
 
@@ -78,13 +80,21 @@ _DATE = (
     rf"(?:(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}"
     rf"|\d{{1,2}}\s+(?:{_MONTHS})\.?,?\s+\d{{4}}"
     r"|\d{4}-\d{2}-\d{2}"
-    r"|\d{1,2}/\d{1,2}/\d{2,4})"
+    r"|\d{1,2}/\d{1,2}/\d{2,4}"
+    # Month and year with no day ("deadline: december 2026"). Resolved to the
+    # last day of that month — the latest the deadline could be — so a vague
+    # date can never sink a listing earlier than it deserves.
+    rf"|(?:{_MONTHS})\.?\s+\d{{4}})"
 )
 # The label must precede the date. Bare dates on a job page are almost always
 # the start date, posting date, or something unrelated.
 _DEADLINE_CUES = (
     r"application deadline",
     r"deadline to apply",
+    # Bare "deadline" is safe only because a date must still follow inside the
+    # same clause; form questions like "offer deadline, organization, role"
+    # have no date after them and are therefore skipped.
+    r"deadline",
     r"apply by",
     r"apply before",
     r"applications? close[sd]?(?:\s+on)?",
@@ -121,10 +131,13 @@ _ABBREV = {m[:3]: i for m, i in _NUMERIC_MONTHS.items()}
 _ABBREV["sept"] = 9
 
 
+def _month_number(name):
+    name = name.lower().rstrip(".")
+    return _NUMERIC_MONTHS.get(name) or _ABBREV.get(name[:4]) or _ABBREV.get(name[:3])
+
+
 def parse_deadline_date(text):
     """Normalize an extracted date string to ISO, or None if unparseable."""
-    import datetime as dt
-
     raw = text.strip().rstrip(".,").lower()
 
     match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", raw)
@@ -143,6 +156,19 @@ def parse_deadline_date(text):
         except ValueError:
             return None
 
+    # Month + year only: take the last day of the month.
+    match = re.fullmatch(rf"({_MONTHS})\.?\s+(\d{{4}})", raw)
+    if match:
+        month = _month_number(match.group(1))
+        if not month:
+            return None
+        year = int(match.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        try:
+            return dt.date(year, month, last_day).isoformat()
+        except ValueError:
+            return None
+
     match = re.fullmatch(
         rf"({_MONTHS})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})", raw
     )
@@ -156,9 +182,7 @@ def parse_deadline_date(text):
     else:
         month_name, day, year = match.group(1), match.group(2), match.group(3)
 
-    month = _NUMERIC_MONTHS.get(month_name) or _ABBREV.get(month_name[:4]) or _ABBREV.get(
-        month_name[:3]
-    )
+    month = _month_number(month_name)
     if not month:
         return None
     try:
@@ -233,8 +257,6 @@ def classify(url, session=None, as_of=None):
     # A stated deadline that has already passed closes the posting, whatever
     # the page still says.
     if deadline:
-        import datetime as dt
-
         reference = as_of or dt.date.today()
         if dt.date.fromisoformat(deadline) < reference:
             return CLOSED, f"deadline {deadline} passed", deadline
