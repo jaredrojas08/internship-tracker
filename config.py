@@ -26,10 +26,12 @@ LISTINGS_HEADERS = [
     "Role",
     "Location",
     "Apply Link",
+    "Deadline",
     "Date Added",
     "Remote?",
     "Status",
     "Link Status",
+    "Last Checked",
     "Applied?",
     "Remove?",
 ]
@@ -37,10 +39,16 @@ PROGRAMS_HEADERS = ["Organization", "Opportunity", "Link", "Type", "Deadline", "
 REMOVED_HEADERS = ["Company", "Role", "Apply Link", "Date Removed"]
 
 # Columns the user owns. The script reads these but must never overwrite them
-# with a default once a row exists.
-USER_OWNED_COLUMNS = ("Applied?", "Remove?")
+# with a default once a row exists. Deadline is here because only ~3% of job
+# postings state one in machine-readable form, so it is mostly typed by hand;
+# the script fills it only when the row is still blank.
+USER_OWNED_COLUMNS = ("Applied?", "Remove?", "Deadline")
 
 NEW_STATUS_DAYS = 3  # a listing shows as NEW for this many days
+
+# Application links are re-checked on this cadence rather than every run.
+# A listing the script has never checked is always checked immediately.
+LINK_CHECK_INTERVAL_DAYS = 7
 
 # --- Strawberry Kiss palette ----------------------------------------------
 

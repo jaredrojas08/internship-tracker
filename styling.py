@@ -15,11 +15,18 @@ log = logging.getLogger(__name__)
 
 # 0-based column positions in the listings tab.
 COL_APPLY_LINK = 3
-COL_REMOTE = 5
-COL_STATUS = 6
-COL_LINK_STATUS = 7
-COL_APPLIED = 8
-COL_REMOVE = 9
+COL_DEADLINE = 4
+COL_REMOTE = 6
+COL_STATUS = 7
+COL_LINK_STATUS = 8
+COL_LAST_CHECKED = 9
+COL_APPLIED = 10
+COL_REMOVE = 11
+
+# A1-style letters for the columns referenced inside conditional formulas.
+A1_LINK_STATUS = "I"
+A1_APPLIED = "K"
+A1_DEADLINE = "E"
 
 
 def _grid(sheet_id, start_row=0, end_row=None, start_col=0, end_col=None):
@@ -127,20 +134,31 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         }
 
     del data  # banding is handled natively by the table's rowsProperties
+    deadline_range = _grid(sheet_id, 1, num_rows + 1, COL_DEADLINE, COL_DEADLINE + 1)
+    ls, ap, dl = A1_LINK_STATUS, A1_APPLIED, A1_DEADLINE
+
     return [
-        # Dead/closed rows grey out entirely so they read as inactive at a glance.
+        # Dead, closed, or past-deadline rows grey out entirely so they read as
+        # inactive at a glance.
         formula(
             [whole_row],
-            '=OR($H2="DEAD",$H2="CLOSED")',
+            f'=OR(${ls}2="DEAD",${ls}2="CLOSED",AND(ISNUMBER(${dl}2),${dl}2<TODAY()))',
             PALETTE["light_warm_grey"],
             PALETTE["warm_brown"],
         ),
         text_eq(link_range, "DEAD", PALETTE["muted_taupe"], PALETTE["white"], True),
         text_eq(link_range, "CLOSED", PALETTE["muted_taupe"], PALETTE["white"], True),
+        # A deadline inside the next two weeks is the thing worth acting on.
+        formula(
+            [deadline_range],
+            f"=AND(ISNUMBER(${dl}2),${dl}2>=TODAY(),${dl}2<=TODAY()+14)",
+            PALETTE["dusty_rose"],
+            bold=True,
+        ),
         text_eq(status_range, "NEW", PALETTE["dusty_rose"], bold=True),
         text_eq(status_range, "SEEN", PALETTE["muted_taupe"]),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
-        formula([applied_range], "=$I2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
+        formula([applied_range], f"=${ap}2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
     ]
 
 

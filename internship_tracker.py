@@ -36,6 +36,11 @@ def parse_args(argv=None):
         action="store_true",
         help="skip checking whether application links are still live",
     )
+    ap.add_argument(
+        "--force-links",
+        action="store_true",
+        help="re-check every link now, ignoring the weekly interval",
+    )
     ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return ap.parse_args(argv)
 
@@ -121,10 +126,26 @@ def main(argv=None):
     removed_keys = sheets.read_removed_keys(removed_ws)
     log.info("Sheet currently holds %d row(s), %d tombstoned", len(state), len(removed_keys))
 
-    # 3b. Check whether each application link is still live and still open.
+    # 3b. Check links, but only ones never checked or checked over a week ago.
+    # Everything else carries last week's verdict forward, so the daily run
+    # stays fast and the job boards aren't hit 95 times a day.
     link_status = {}
     if not args.skip_links:
-        link_status = linkcheck.check_all([l.apply_url for l in listings])
+        due = [
+            l
+            for l in listings
+            if args.force_links or sheets.needs_link_check(state.get(l.key))
+        ]
+        skipped = len(listings) - len(due)
+        if skipped:
+            log.info(
+                "Re-checking %d link(s); %d checked within the last %d days",
+                len(due),
+                skipped,
+                config.LINK_CHECK_INTERVAL_DAYS,
+            )
+        if due:
+            link_status = linkcheck.check_all([l.apply_url for l in due])
 
     rows, new_listings, dropped = sheets.build_rows(
         listings, state, removed_keys, link_status=link_status

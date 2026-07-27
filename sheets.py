@@ -66,11 +66,60 @@ def ensure_worksheet(spreadsheet, title, headers, hidden=False, read_only=False)
             worksheet.hide()
         return worksheet
 
-    existing = worksheet.row_values(1)
-    if existing != headers and not read_only:
-        log.info("Rewriting header row on %r", title)
+    existing_values = worksheet.get_all_values()
+    old_headers = existing_values[0] if existing_values else []
+    if old_headers and old_headers != headers and not read_only:
+        _migrate_columns(worksheet, old_headers, headers, existing_values[1:])
+    elif not old_headers and not read_only:
         worksheet.update(values=[headers], range_name="A1")
     return worksheet
+
+
+def _migrate_columns(worksheet, old_headers, new_headers, data_rows):
+    """Rewrite existing rows into a changed column layout, matching by name.
+
+    Without this, adding or reordering a column silently shifts every existing
+    row: the header would be rewritten first, and the next read would map new
+    column positions onto old data. Values whose column is gone are dropped;
+    new columns start empty.
+    """
+    log.info(
+        "Migrating %r from %d to %d columns", worksheet.title, len(old_headers), len(new_headers)
+    )
+    position = {name: i for i, name in enumerate(old_headers)}
+
+    migrated = []
+    for row in data_rows:
+        if not any(cell.strip() for cell in row):
+            continue
+        migrated.append(
+            [
+                row[position[name]] if name in position and position[name] < len(row) else ""
+                for name in new_headers
+            ]
+        )
+
+    end_col = _column_letter(len(new_headers))
+    worksheet.update(values=[new_headers], range_name="A1")
+    if migrated:
+        worksheet.update(
+            values=migrated,
+            range_name=f"A2:{end_col}{len(migrated) + 1}",
+            value_input_option="USER_ENTERED",
+        )
+    # Drop any columns that used to exist beyond the new width.
+    if len(old_headers) > len(new_headers):
+        stale = _column_letter(len(old_headers))
+        worksheet.batch_clear([f"{_column_letter(len(new_headers) + 1)}1:{stale}{len(data_rows) + 1}"])
+
+
+def _column_letter(count):
+    """1 -> 'A', 26 -> 'Z', 27 -> 'AA'."""
+    letters = ""
+    while count > 0:
+        count, remainder = divmod(count - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
 
 
 # --- Reading state ---------------------------------------------------------
@@ -112,10 +161,24 @@ def read_listing_state(worksheet):
             "location": cell("Location"),
             "apply_url": url,
             "date_added": cell("Date Added"),
+            "deadline": cell("Deadline"),
+            "link_status": cell("Link Status"),
+            "last_checked": cell("Last Checked"),
             "applied": cell("Applied?") in TRUTHY,
             "remove": cell("Remove?") in TRUTHY,
         }
     return state
+
+
+def needs_link_check(existing, as_of=None):
+    """True if this listing has never been checked, or was checked too long ago."""
+    if not existing:
+        return True
+    last = _parse_date(existing.get("last_checked"))
+    if last is None:
+        return True
+    as_of = as_of or today()
+    return (as_of - last).days >= config.LINK_CHECK_INTERVAL_DAYS
 
 
 def read_removed_keys(worksheet):
@@ -178,6 +241,19 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
             applied = False
             newly_added.append(listing)
 
+        # A fresh check wins; otherwise carry last week's verdict forward.
+        checked = link_status.get(listing.apply_url)
+        if checked:
+            status, _detail, found_deadline = checked
+            last_checked = today_str
+        else:
+            status = (existing or {}).get("link_status", "")
+            last_checked = (existing or {}).get("last_checked", "")
+            found_deadline = ""
+
+        # Deadline is user-owned: only fill it when the cell is still empty.
+        deadline = (existing or {}).get("deadline", "") or found_deadline
+
         rows.append(
             {
                 "listing": listing,
@@ -185,10 +261,12 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Role": listing.role,
                 "Location": listing.location,
                 "Apply Link": listing.apply_url,
+                "Deadline": deadline,
                 "Date Added": date_added,
                 "Remote?": "YES" if listing.is_remote else "NO",
                 "Status": status_for(date_added, as_of),
-                "Link Status": link_status.get(listing.apply_url, ("", ""))[0],
+                "Link Status": status,
+                "Last Checked": last_checked,
                 "Applied?": applied,
                 "Remove?": False,
             }
@@ -208,6 +286,11 @@ def _sort_key(row):
     expressed as "0 means first".
     """
     unapplicable = 1 if row.get("Link Status") in ("DEAD", "CLOSED") else 0
+    # A deadline in the past also sinks the row, including one typed by hand
+    # that the link checker never saw.
+    due = _parse_date(row.get("Deadline"))
+    if due and due < (row.get("_as_of") or today()):
+        unapplicable = 1
     is_new = 0 if row["Status"] == "NEW" else 1
     is_remote = 0 if row["Remote?"] == "YES" else 1
     added = _parse_date(row["Date Added"])
@@ -223,10 +306,12 @@ def rows_to_values(rows):
             row["Role"],
             row["Location"],
             row["Apply Link"],
+            row["Deadline"],
             row["Date Added"],
             row["Remote?"],
             row["Status"],
             row["Link Status"],
+            row["Last Checked"],
             bool(row["Applied?"]),
             bool(row["Remove?"]),
         ]
@@ -260,7 +345,7 @@ def write_block(worksheet, headers, values):
     if worksheet.row_count < needed:
         worksheet.add_rows(needed - worksheet.row_count + 50)
 
-    end_col = chr(ord("A") + len(headers) - 1)
+    end_col = _column_letter(len(headers))
     if values:
         worksheet.update(
             values=values,
