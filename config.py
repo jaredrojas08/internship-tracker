@@ -62,6 +62,15 @@ USER_OWNED_COLUMNS = ("Applied?", "Remove?", "Deadline")
 # An application with no response after this long is worth chasing.
 FOLLOW_UP_AFTER_DAYS = 21
 
+# Send a short heartbeat on days with nothing to report, so silence always
+# means "the run failed" rather than "nothing happened". Set the env var to
+# "false"/"0" to only hear from the digest when something actually changed.
+NOTIFY_ON_QUIET_DAYS = os.environ.get("NOTIFY_ON_QUIET_DAYS", "true").strip().lower() not in (
+    "false",
+    "0",
+    "no",
+)
+
 NEW_STATUS_DAYS = 3  # a listing shows as NEW for this many days
 
 # Application links are re-checked on this cadence rather than every run.

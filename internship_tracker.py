@@ -44,6 +44,11 @@ def parse_args(argv=None):
         help="re-check every link now, ignoring the weekly interval",
     )
     ap.add_argument(
+        "--test-notify",
+        action="store_true",
+        help="send a sample digest to the configured channel and exit",
+    )
+    ap.add_argument(
         "--no-notify",
         action="store_true",
         help="skip the daily digest even if a channel is configured",
@@ -88,6 +93,9 @@ def main(argv=None):
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)-7s %(message)s",
     )
+
+    if args.test_notify:
+        return 0 if notify.send_test() else 1
 
     # 1. Fetch and parse every configured source, sharing one download cache
     #    so the programs table doesn't refetch a README already pulled.

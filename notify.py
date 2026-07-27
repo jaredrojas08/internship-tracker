@@ -52,7 +52,9 @@ def build_digest(rows, new_listings, dropped, as_of=None):
     games = [l for l in new_listings if l.is_game]
 
     if not (new_listings or follow_ups or dead_applied or soon):
-        return None
+        if not config.NOTIFY_ON_QUIET_DAYS:
+            return None
+        return _quiet_digest(rows, as_of)
 
     parts = []
 
@@ -101,6 +103,35 @@ def build_digest(rows, new_listings, dropped, as_of=None):
 
     headline = _headline(len(new_listings), len(games), len(follow_ups), len(soon))
     return headline, "\n\n".join(parts)
+
+
+def _quiet_digest(rows, as_of):
+    """One line confirming the run happened and found nothing new.
+
+    Deliberately terse and visually distinct from a real digest, so it can be
+    dismissed at a glance — but present, so silence unambiguously means the run
+    failed rather than that nothing happened.
+    """
+    applied = sum(1 for r in rows if r.get("Applied?"))
+    open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
+
+    upcoming = []
+    for row in rows:
+        due = _date(row.get("Deadline"))
+        if due and due >= as_of and not row.get("Applied?"):
+            upcoming.append((due, row))
+    upcoming.sort(key=lambda pair: pair[0])
+
+    detail = f"{open_roles} open · {applied} applied"
+    if upcoming:
+        due, row = upcoming[0]
+        days = (due - as_of).days
+        detail += f" · next deadline {row['Company']} in {days}d ({due.isoformat()})"
+
+    return (
+        "Internship tracker: no new activity",
+        f"😴 **No new listings today.**\n{detail}",
+    )
 
 
 def _headline(new_count, game_count, follow_count, soon_count):
@@ -199,3 +230,33 @@ def _send_email(subject, body):
     except (smtplib.SMTPException, OSError) as exc:
         log.warning("Email delivery failed: %s", exc)
         return False
+
+
+def send_test():
+    """Send a sample digest so a new channel can be verified end to end.
+
+    Uses obviously fake listings — a test message must never be mistakable for
+    a real opening.
+    """
+    subject = "Internship tracker: test message"
+    body = "\n\n".join(
+        [
+            "**✅ Digest delivery is working.**",
+            _section(
+                "🎮 New game roles",
+                ["EXAMPLE STUDIO (not real) — Gameplay Engineer Intern [REMOTE]"],
+            ),
+            _section(
+                f"📮 Applications with no reply after {config.FOLLOW_UP_AFTER_DAYS} days",
+                ["2026-01-01 — EXAMPLE CORP (not real) — Software Engineer Intern"],
+            ),
+            "This is a test. Real digests only send when something actually changes.",
+        ]
+    )
+    delivered = send(subject, body)
+    if not delivered:
+        log.error(
+            "No channel configured. Set DISCORD_WEBHOOK_URL, or the SMTP_* vars, "
+            "then try again."
+        )
+    return bool(delivered)

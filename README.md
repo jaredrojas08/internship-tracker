@@ -100,7 +100,18 @@ The sheet is a pull interface — only useful when you remember to open it. The 
 - applications past the follow-up window
 - roles you applied to whose posting has since closed
 
-**Nothing actionable means no message.** A daily "nothing happened" just trains you to ignore it.
+On a quiet day it sends a one-line heartbeat instead:
+
+```
+😴 No new listings today.
+214 open · 3 applied · next deadline Western Digital in 85d (2026-10-20)
+```
+
+That exists so **silence always means the run failed**, never "nothing happened" — otherwise a broken workflow is indistinguishable from a slow week. It's deliberately terse and uses a distinct emoji so it can be dismissed at a glance.
+
+Set `NOTIFY_ON_QUIET_DAYS=false` to only hear from it when something actually changed.
+
+Verify a new channel with `--test-notify`, which sends a clearly-labelled sample and exits.
 
 Channels are opt-in by secret; set either, both, or neither:
 
@@ -200,6 +211,8 @@ cp .env.example .env      # then fill it in
 ./venv/bin/python internship_tracker.py --no-style   # skip formatting
 ./venv/bin/python internship_tracker.py --skip-links  # skip link checking
 ./venv/bin/python internship_tracker.py --force-links # re-check every link now
+./venv/bin/python internship_tracker.py --test-notify  # send a sample digest and exit
+./venv/bin/python internship_tracker.py --no-notify    # skip the digest
 ```
 
 `--dry-run` is fully read-only: it won't create tabs or modify a single cell.
