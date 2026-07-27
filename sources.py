@@ -211,14 +211,22 @@ def deduplicate(listings):
     return unique, duplicates
 
 
-def fetch_all(only=None):
-    """Fetch and parse every configured source. Failures degrade, not abort."""
+def fetch_all(only=None, cache=None):
+    """Fetch and parse every configured source. Failures degrade, not abort.
+
+    `cache` is an optional {url: markdown} dict, filled in as sources are
+    fetched, so a caller that also needs one of the READMEs (the programs table
+    lives on sndsh404's) doesn't download it twice.
+    """
+    cache = {} if cache is None else cache
     collected = []
     for source in SOURCES:
         if only and source["name"] not in only:
             continue
         try:
-            markdown = md.fetch_readme(source["url"])
+            if source["url"] not in cache:
+                cache[source["url"]] = md.fetch_readme(source["url"])
+            markdown = cache[source["url"]]
             listings = source["parse"](markdown)
         except Exception as exc:  # noqa: BLE001 - one bad source must not kill the run
             log.warning("Source %r failed, continuing without it: %s", source["name"], exc)

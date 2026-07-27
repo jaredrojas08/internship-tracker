@@ -26,6 +26,7 @@ LISTINGS_HEADERS = [
     "Role",
     "Location",
     "Apply Link",
+    "Salary",
     "Deadline",
     "Date Added",
     "Remote?",
@@ -33,6 +34,7 @@ LISTINGS_HEADERS = [
     "Status",
     "Link Status",
     "Last Checked",
+    "Source",
     "Applied?",
     "Remove?",
 ]

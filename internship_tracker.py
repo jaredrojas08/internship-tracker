@@ -14,6 +14,7 @@ import config
 import linkcheck
 import parser as md_parser
 import sheets
+import sources
 import styling
 
 log = logging.getLogger("internship_tracker")
@@ -78,19 +79,27 @@ def main(argv=None):
         format="%(levelname)-7s %(message)s",
     )
 
-    # 1. Fetch and parse the source.
+    # 1. Fetch and parse every configured source, sharing one download cache
+    #    so the programs table doesn't refetch a README already pulled.
+    downloads = {}
     try:
-        markdown = md_parser.fetch_readme()
-    except requests.RequestException as exc:
-        log.error("Could not fetch the source README: %s", exc)
-        return 1
-
-    try:
-        listings = md_parser.parse_listings(markdown)
+        listings = sources.fetch_all(cache=downloads)
     except md_parser.ParseError as exc:
         log.error("Parse failed, refusing to write bad data: %s", exc)
         return 1
+    if not listings:
+        log.error("No listings from any source; refusing to wipe the sheet.")
+        return 1
 
+    listings, duplicates = sources.deduplicate(listings)
+    log.info("%d unique listing(s) after removing %d duplicate(s)", len(listings), duplicates)
+
+    # The programs table only exists on the original source.
+    try:
+        markdown = downloads.get(config.README_URL) or md_parser.fetch_readme()
+    except requests.RequestException as exc:
+        log.error("Could not fetch the programs source: %s", exc)
+        return 1
     programs = md_parser.parse_programs(markdown)
 
     if args.dry_run and not _can_connect():
@@ -161,8 +170,16 @@ def main(argv=None):
         report(new_listings, dropped, len(rows), programs, rows)
         return 0
 
-    # 5. Write.
+    # 5. Write. The table's column types must be aligned with the current
+    #    headers first — see styling.sync_table_schema.
     sheets.append_removed(removed_ws, dropped)
+    if not args.no_style:
+        try:
+            styling.sync_table_schema(
+                spreadsheet, listings_ws, programs_ws, len(rows), len(program_values)
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not sync table schema before write: %s", exc)
     sheets.write_block(listings_ws, config.LISTINGS_HEADERS, sheets.rows_to_values(rows))
     sheets.write_block(programs_ws, config.PROGRAMS_HEADERS, program_values)
 

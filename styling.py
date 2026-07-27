@@ -15,14 +15,16 @@ log = logging.getLogger(__name__)
 
 # 0-based column positions in the listings tab.
 COL_APPLY_LINK = 3
-COL_DEADLINE = 4
-COL_REMOTE = 6
-COL_GAME = 7
-COL_STATUS = 8
-COL_LINK_STATUS = 9
-COL_LAST_CHECKED = 10
-COL_APPLIED = 11
-COL_REMOVE = 12
+COL_SALARY = 4
+COL_DEADLINE = 5
+COL_REMOTE = 7
+COL_GAME = 8
+COL_STATUS = 9
+COL_LINK_STATUS = 10
+COL_LAST_CHECKED = 11
+COL_SOURCE = 12
+COL_APPLIED = 13
+COL_REMOVE = 14
 
 
 def _a1(index):
@@ -281,6 +283,37 @@ def _clear_conditional_rules(spreadsheet, sheet_ids, metadata=None):
                 {"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": index}}
             )
     return requests
+
+
+def sync_table_schema(spreadsheet, listings_ws, programs_ws, num_listings, num_programs):
+    """Align each table's column types with the current headers, before writing.
+
+    Must run BEFORE row data is written. A Table column declared BOOLEAN coerces
+    anything written into it to TRUE/FALSE, so if the checkbox columns have moved
+    (a column was inserted) the stale schema silently turns the two columns now
+    sitting at the old checkbox positions into FALSE.
+    """
+    metadata = spreadsheet.fetch_sheet_metadata()
+    requests = [
+        _table_request(
+            metadata,
+            listings_ws.id,
+            "InternshipListings",
+            config.LISTINGS_HEADERS,
+            num_listings,
+            PALETTE["deep_berry"],
+            checkbox_cols={COL_APPLIED, COL_REMOVE},
+        ),
+        _table_request(
+            metadata,
+            programs_ws.id,
+            "ProgramsAndFellowships",
+            config.PROGRAMS_HEADERS,
+            num_programs,
+            PALETTE["light_warm_grey"],
+        ),
+    ]
+    spreadsheet.batch_update({"requests": requests})
 
 
 def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs):

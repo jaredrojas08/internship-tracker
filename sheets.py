@@ -261,6 +261,7 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Role": listing.role,
                 "Location": listing.location,
                 "Apply Link": listing.apply_url,
+                "Salary": listing.salary,
                 "Deadline": deadline,
                 "Date Added": date_added,
                 "Remote?": "YES" if listing.is_remote else "NO",
@@ -268,6 +269,7 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Status": status_for(date_added, as_of),
                 "Link Status": status,
                 "Last Checked": last_checked,
+                "Source": listing.source,
                 "Applied?": applied,
                 "Remove?": False,
             }
@@ -308,6 +310,7 @@ def rows_to_values(rows):
             row["Role"],
             row["Location"],
             row["Apply Link"],
+            row["Salary"],
             row["Deadline"],
             row["Date Added"],
             row["Remote?"],
@@ -315,6 +318,7 @@ def rows_to_values(rows):
             row["Status"],
             row["Link Status"],
             row["Last Checked"],
+            row["Source"],
             bool(row["Applied?"]),
             bool(row["Remove?"]),
         ]
