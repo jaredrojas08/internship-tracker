@@ -60,7 +60,8 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | L | Last Checked — when the link was last verified |
 | M | Source — which list it came from |
 | N | **Applied?** — yours to toggle |
-| O | **Remove?** — check to delete the row |
+| O | Applied Date — auto-stamped when you tick Applied? |
+| P | **Remove?** — check to delete the row |
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
@@ -83,6 +84,32 @@ Check `Remove?` on anything you don't want. It disappears on the next run and wo
 A bare date on a job page is usually the start date or posting date, so extraction requires an explicit cue phrase ahead of the date and won't reach across a sentence boundary.
 
 Deadlines within the next 14 days highlight in dusty rose. A passed deadline greys the row out and sinks it, whether the script found it or you typed it.
+
+### Applied Date and follow-ups
+
+Ticking `Applied?` stamps today's date into `Applied Date` on the next run. The stamp is **never cleared** — unticking the box by accident shouldn't destroy the record of when you submitted.
+
+An application still unanswered after `FOLLOW_UP_AFTER_DAYS` (21) highlights and appears in the digest. Roles whose link has since gone `DEAD` or `CLOSED` are excluded: those aren't waiting on a reply, they're over.
+
+### Daily digest
+
+The sheet is a pull interface — only useful when you remember to open it. The digest pushes what changed:
+
+- new listings, with game roles called out first
+- deadlines within 14 days you haven't applied to
+- applications past the follow-up window
+- roles you applied to whose posting has since closed
+
+**Nothing actionable means no message.** A daily "nothing happened" just trains you to ignore it.
+
+Channels are opt-in by secret; set either, both, or neither:
+
+| Channel | Secrets |
+|---|---|
+| Discord | `DISCORD_WEBHOOK_URL` — create via Server Settings → Integrations → Webhooks |
+| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `NOTIFY_EMAIL_TO` |
+
+With neither set the digest silently no-ops. Delivery failures are logged as warnings and never fail the run — the sheet is already written by then. Skip with `--no-notify`.
 
 ### Link checking
 

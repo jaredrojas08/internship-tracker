@@ -12,6 +12,7 @@ import requests
 
 import config
 import linkcheck
+import notify
 import parser as md_parser
 import sheets
 import sources
@@ -41,6 +42,11 @@ def parse_args(argv=None):
         "--force-links",
         action="store_true",
         help="re-check every link now, ignoring the weekly interval",
+    )
+    ap.add_argument(
+        "--no-notify",
+        action="store_true",
+        help="skip the daily digest even if a channel is configured",
     )
     ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return ap.parse_args(argv)
@@ -202,6 +208,15 @@ def main(argv=None):
             styling.apply_all(spreadsheet, listings_ws, programs_ws, len(rows), len(program_values))
         except Exception as exc:  # noqa: BLE001 - styling must never lose data
             log.warning("Formatting pass failed (data is written and safe): %s", exc)
+
+    # 6. Digest. Runs last, after the sheet is safely written, and never
+    #    fails the run — a missed notification is not worth losing data over.
+    if not args.no_notify:
+        digest = notify.build_digest(rows, new_listings, dropped)
+        if digest:
+            notify.send(*digest)
+        else:
+            log.info("Nothing actionable today; no digest sent.")
 
     report(new_listings, dropped, len(rows), programs, rows, dropped_programs)
     return 0
