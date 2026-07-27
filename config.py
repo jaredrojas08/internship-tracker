@@ -111,7 +111,24 @@ ROLE_KEYWORDS = [
     "data analyst",
     "quant",
     "quantitative",
+    # Research/science roles that are ML work under another name.
+    "applied scientist",
+    "research scientist",
+    "student researcher",
+    "informatics",
+    # Product roles adjacent to engineering.
+    "product manager",
+    "product management",
+    "product development",
+    "associate product",
+    # Tech-org roles that don't say "software".
+    "information technology",
 ]
+
+# Uppercase acronyms matched case-sensitively. "IT" cannot go in the list above:
+# case-insensitively it would match the English word "it", and its inflection
+# "its", in any role title.
+CASE_SENSITIVE_KEYWORDS = ["IT", "CIM", "SWE"]
 
 # Matching rules, in tension with each other:
 #   - Bare substring search is too loose: "ai" matches Retail/Maintenance/Chair,
@@ -125,11 +142,41 @@ _ROLE_PATTERN = re.compile(
     "|".join(rf"\b{re.escape(kw)}{_INFLECTIONS}\b" for kw in ROLE_KEYWORDS),
     re.IGNORECASE,
 )
+_ACRONYM_PATTERN = re.compile(
+    "|".join(rf"\b{re.escape(kw)}\b" for kw in CASE_SENSITIVE_KEYWORDS)
+)
+
+# --- Eligibility -----------------------------------------------------------
+
+# Jared is a BS Computer Science student graduating May 2028, so roles gated on
+# a graduate degree are unreachable and should never reach the sheet.
+_ADVANCED_DEGREE = re.compile(
+    r"\bph\.?\s?d\b|\bmaster'?s?\b|\bmba\b|\bdoctoral\b|\bpost[- ]?doc\w*\b|\bm\.?s\.?\b",
+    re.IGNORECASE,
+)
+
+# ...unless the posting also opens the door to undergrads, as in "Intern
+# (BS/MS/PhD)". In that case the graduate degree is one option, not a gate.
+_UNDERGRAD_OK = re.compile(
+    r"\bb\.?s\.?\b|\bbachelor'?s?\b|\bundergrad\w*\b|\bsophomore\b|\bjunior\b|\bfreshman\b",
+    re.IGNORECASE,
+)
+
+
+def requires_advanced_degree(role_title):
+    """True if the role is gated on a graduate degree Jared won't have."""
+    if not _ADVANCED_DEGREE.search(role_title):
+        return False
+    return not _UNDERGRAD_OK.search(role_title)
 
 
 def matches_role_filter(role_title):
-    """True if the role title contains any whitelisted keyword as a whole word."""
-    return bool(_ROLE_PATTERN.search(role_title))
+    """True if the role is both relevant and something Jared is eligible for."""
+    if requires_advanced_degree(role_title):
+        return False
+    return bool(_ROLE_PATTERN.search(role_title)) or bool(
+        _ACRONYM_PATTERN.search(role_title)
+    )
 
 
 # --- Credentials -----------------------------------------------------------
