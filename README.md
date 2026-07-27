@@ -25,11 +25,12 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | E | **Deadline** — mostly yours to fill in (see below) |
 | F | Date Added — when the script first saw it |
 | G | Remote? |
-| H | Status — `NEW` for 3 days, then `SEEN` |
-| I | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
-| J | Last Checked — when the link was last verified |
-| K | **Applied?** — yours to toggle |
-| L | **Remove?** — check to delete the row |
+| H | Game? — game development role |
+| I | Status — `NEW` for 3 days, then `SEEN` |
+| J | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
+| K | Last Checked — when the link was last verified |
+| L | **Applied?** — yours to toggle |
+| M | **Remove?** — check to delete the row |
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
@@ -70,9 +71,17 @@ The honest limitation: a `200` does not prove a role is still open. Greenhouse, 
 
 Skip it with `--skip-links`, or force a full sweep now with `--force-links`.
 
+### Game roles
+
+`GAME_KEYWORDS` in `config.py` flags game development work — Unity, Unreal, gameplay, graphics, shaders, rendering, VR/XR, technical art. These sort above everything except brand-new listings and get the deep-berry highlight.
+
+Bare `engine` is deliberately **not** a keyword: it matches jet engines, search engines and rules engines far more often than game engines. `game engine` is listed in full instead.
+
+**Reality check:** as measured against the live source, **0 of 95 listings are game roles.** The source repo's stated scope is "software engineering, data and ML, hardware, quant, and product" — game development isn't a category it covers. This prioritization works the moment one appears, but the source may never carry many. Dedicated game industry boards (Hitmarker, Work With Indies, GameJobs.co) would be a better source for that specifically.
+
 ### Sort order
 
-Applicable first, then `NEW`, then remote, then newest, then alphabetical by company.
+Applicable first, then `NEW`, then **game**, then remote, then newest, then alphabetical by company.
 
 New listings surface at the top for three days regardless of location; after that the sheet settles into remote-at-top. This is why row order changes between runs — the sheet is rebuilt each time, not appended to.
 
