@@ -22,12 +22,14 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | B | Role (emoji flags preserved) |
 | C | Location |
 | D | Apply link |
-| E | Date Added — when the script first saw it |
-| F | Remote? |
-| G | Status — `NEW` for 3 days, then `SEEN` |
-| H | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
-| I | **Applied?** — yours to toggle |
-| J | **Remove?** — check to delete the row |
+| E | **Deadline** — mostly yours to fill in (see below) |
+| F | Date Added — when the script first saw it |
+| G | Remote? |
+| H | Status — `NEW` for 3 days, then `SEEN` |
+| I | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
+| J | Last Checked — when the link was last verified |
+| K | **Applied?** — yours to toggle |
+| L | **Remove?** — check to delete the row |
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
@@ -35,11 +37,19 @@ Both tabs are native Google Sheets Tables, so you get per-column filter dropdown
 
 **Tab: Removed** (hidden) — tombstones. Without this a removed row would be re-added on the next run, since the script would no longer see it in the sheet and would treat it as new. To un-remove something, delete its row here.
 
-### The two columns you own
+### The columns you own
 
-`Applied?` and `Remove?` are never overwritten. The script identifies each listing by `Company + Role + Apply URL`, not by row number, so it re-sorts the whole sheet every run without your checkboxes drifting onto the wrong listing.
+`Applied?`, `Remove?` and `Deadline` are never overwritten. The script identifies each listing by `Company + Role + Apply URL`, not by row number, so it re-sorts the whole sheet every run without your entries drifting onto the wrong listing.
 
 Check `Remove?` on anything you don't want. It disappears on the next run and won't come back.
+
+### Deadline
+
+**Measured against the live source, only 3 of 95 postings state a deadline in machine-readable form — about 3%.** Job boards overwhelmingly don't publish one. So this column is primarily yours to fill in by hand; the script fills it only when a page explicitly says something like "apply by January 15, 2027" *and* the cell is still blank. Anything you type wins permanently.
+
+A bare date on a job page is usually the start date or posting date, so extraction requires an explicit cue phrase ahead of the date and won't reach across a sentence boundary.
+
+Deadlines within the next 14 days highlight in dusty rose. A passed deadline greys the row out and sinks it, whether the script found it or you typed it.
 
 ### Link checking
 
@@ -56,7 +66,9 @@ Every run fetches each application URL and classifies it:
 
 The honest limitation: a `200` does not prove a role is still open. Greenhouse, Lever and Ashby 404 properly when a job closes, so detection is reliable there. Workday and iCIMS ship a JavaScript shell with no readable text, which is why they come back `UNKNOWN` rather than being guessed at.
 
-Skip it with `--skip-links` when iterating locally; it adds roughly 30 seconds.
+**Cadence:** each listing is re-checked every **7 days**, not every run — tracked per row in `Last Checked`. A listing the script has never seen is checked immediately, so new arrivals are always verified on arrival. This keeps the daily run fast and avoids hitting the job boards 95 times a day.
+
+Skip it with `--skip-links`, or force a full sweep now with `--force-links`.
 
 ### Sort order
 
@@ -92,7 +104,8 @@ cp .env.example .env      # then fill it in
 ./venv/bin/python internship_tracker.py --dry-run   # preview, writes nothing
 ./venv/bin/python internship_tracker.py             # sync
 ./venv/bin/python internship_tracker.py --no-style   # skip formatting
-./venv/bin/python internship_tracker.py --skip-links # skip link checking (~30s faster)
+./venv/bin/python internship_tracker.py --skip-links  # skip link checking
+./venv/bin/python internship_tracker.py --force-links # re-check every link now
 ```
 
 `--dry-run` is fully read-only: it won't create tabs or modify a single cell.
@@ -134,6 +147,8 @@ After editing, check the effect before syncing:
 - Formatting errors are caught after data is written, so a styling failure can't cost you listings
 - Link-check failures degrade to `UNKNOWN` per URL; one bad host can't fail the run
 
-### One trap worth recording
+### Two traps worth recording
 
-The Sheets API's `deleteTable` deletes the table **and its data rows**. Rebuilding the table each run by delete-then-add silently emptied every text column while leaving the checkboxes behind. `styling.py` uses `updateTable` to resize in place and never issues `deleteTable`.
+**`deleteTable` deletes the table _and its data rows_.** Rebuilding the table each run by delete-then-add silently emptied every text column while leaving the checkboxes behind. `styling.py` uses `updateTable` to resize in place and never issues `deleteTable`.
+
+**Header rewrites must migrate data.** `read_listing_state` derives column positions from row 1 of the sheet. If the header is rewritten to a new layout before state is read, new positions get mapped onto old rows and every column shifts — silently, and the corruption then feeds itself on the next run. `_migrate_columns` remaps existing rows by column *name* whenever the header changes, so adding or reordering a column is safe.
