@@ -11,6 +11,9 @@ __pycache__/
 venv/
 .venv/
 
+# Personal build spec — contains name/school/grad date, keep local
+INTERNSHIP_TRACKER_INSTRUCTIONS.md
+
 # Local state / fallback output
 state.json
 *.xlsx
