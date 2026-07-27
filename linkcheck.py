@@ -86,12 +86,19 @@ _DEADLINE_CUES = (
     r"application deadline",
     r"deadline to apply",
     r"apply by",
+    r"apply before",
     r"applications? close[sd]?(?:\s+on)?",
-    r"accepting applications until",
+    r"accepting applications (?:until|through)",
     r"submit(?:\s+your)?\s+application by",
     r"last day to apply",
     r"closing date",
     r"applications? due",
+    # Google and others phrase the deadline as a window that stays open until a
+    # date, which reads as availability rather than a deadline.
+    r"application window (?:is |will be |will remain )?open (?:until|through)",
+    r"applications? (?:are |will be |will remain )?(?:open|accepted) (?:until|through)",
+    r"window (?:is |will be )?open (?:until|through)",
+    r"posting (?:will )?close[sd]?(?:\s+on)?",
 )
 # The gap allows a few filler words ("deadline *is* March 1") but no sentence
 # break, so a cue can't reach across into an unrelated date.
