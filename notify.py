@@ -32,7 +32,7 @@ MAX_ITEMS = 10  # per section, so one busy day can't produce a wall of text
 USER_AGENT = "InternshipTracker (https://github.com/jaredrojas08/Internship-Tracker, 1.0)"
 
 
-def build_digest(rows, new_listings, dropped, as_of=None):
+def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     """Return (subject, body) summarising what needs attention, or None.
 
     Returns None when there is nothing actionable, so a quiet day sends no
@@ -73,12 +73,17 @@ def build_digest(rows, new_listings, dropped, as_of=None):
 
     games = [l for l in new_listings if l.is_game]
 
-    if not (new_listings or follow_ups or dead_applied or soon):
+    if not (new_listings or follow_ups or dead_applied or soon or warnings):
         if not config.NOTIFY_ON_QUIET_DAYS:
             return None
         return _quiet_digest(rows, as_of)
 
     parts = []
+
+    # Source breakage goes first: everything below it is suspect when a source
+    # is missing, so it must not be buried under the listings.
+    if warnings:
+        parts.append(_section("🚨 Source problem — the list may be incomplete", list(warnings)))
 
     if games:
         parts.append(_section("🎮 New game roles", [_fmt_listing(l) for l in games]))
@@ -127,6 +132,8 @@ def build_digest(rows, new_listings, dropped, as_of=None):
     # Games are counted separately in the headline, so pass only the remainder
     # to avoid announcing one game role as "1 game role, 1 new".
     headline = _headline(len(other_new), len(games), len(follow_ups), len(soon))
+    if warnings:
+        headline = "⚠️ Internship tracker: source problem"
     return headline, "\n\n".join(parts)
 
 

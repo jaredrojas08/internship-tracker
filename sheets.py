@@ -164,6 +164,8 @@ def read_listing_state(worksheet):
             "deadline": cell("Deadline"),
             "link_status": cell("Link Status"),
             "last_checked": cell("Last Checked"),
+            "source": cell("Source"),
+            "salary": cell("Salary"),
             "applied": cell("Applied?") in TRUTHY,
             "applied_date": cell("Applied Date"),
             "remove": cell("Remove?") in TRUTHY,

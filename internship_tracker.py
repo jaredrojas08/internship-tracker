@@ -100,8 +100,9 @@ def main(argv=None):
     # 1. Fetch and parse every configured source, sharing one download cache
     #    so the programs table doesn't refetch a README already pulled.
     downloads = {}
+    source_health = []
     try:
-        listings = sources.fetch_all(cache=downloads)
+        listings = sources.fetch_all(cache=downloads, health=source_health)
     except md_parser.ParseError as exc:
         log.error("Parse failed, refusing to write bad data: %s", exc)
         return 1
@@ -185,6 +186,26 @@ def main(argv=None):
         listings, state, removed_keys, link_status=link_status
     )
 
+    # A failed source must not delete the rows it contributed last run.
+    failed = sources.failed_source_names(source_health)
+    retained = sources.retain_from_state(state, listings, failed)
+    if retained:
+        listings = listings + retained
+        rows, new_listings, dropped = sheets.build_rows(
+            listings, state, removed_keys, link_status=link_status
+        )
+
+    # Compare each source against what it contributed last run, so a source
+    # that quietly shrinks is as visible as one that outright fails.
+    prior_counts = {}
+    for existing in state.values():
+        name = existing.get("source", "")
+        if name:
+            prior_counts[name] = prior_counts.get(name, 0) + 1
+    health_warnings = sources.assess_health(source_health, prior_counts)
+    for warning in health_warnings:
+        log.warning("Source health — %s", warning)
+
     # 4. Programs: same user-owned checkbox handling as the listings tab.
     program_state = sheets.read_program_state(programs_ws)
     removed_program_keys = sheets.read_removed_program_keys(removed_programs_ws)
@@ -220,7 +241,7 @@ def main(argv=None):
     # 6. Digest. Runs last, after the sheet is safely written, and never
     #    fails the run — a missed notification is not worth losing data over.
     if not args.no_notify:
-        digest = notify.build_digest(rows, new_listings, dropped)
+        digest = notify.build_digest(rows, new_listings, dropped, warnings=health_warnings)
         if digest:
             notify.send(*digest)
         else:

@@ -211,14 +211,20 @@ def deduplicate(listings):
     return unique, duplicates
 
 
-def fetch_all(only=None, cache=None):
+def fetch_all(only=None, cache=None, health=None):
     """Fetch and parse every configured source. Failures degrade, not abort.
 
     `cache` is an optional {url: markdown} dict, filled in as sources are
     fetched, so a caller that also needs one of the READMEs (the programs table
     lives on sndsh404's) doesn't download it twice.
+
+    `health` is an optional list that gets one entry per source describing
+    whether it worked and how much it returned. Degrading quietly is correct —
+    one broken upstream should not block the others — but it must not be
+    *invisible*, or a source can disappear for weeks unnoticed.
     """
     cache = {} if cache is None else cache
+    health = [] if health is None else health
     collected = []
     for source in SOURCES:
         if only and source["name"] not in only:
@@ -230,7 +236,81 @@ def fetch_all(only=None, cache=None):
             listings = source["parse"](markdown)
         except Exception as exc:  # noqa: BLE001 - one bad source must not kill the run
             log.warning("Source %r failed, continuing without it: %s", source["name"], exc)
+            health.append({"name": source["name"], "count": 0, "ok": False, "error": str(exc)[:120]})
             continue
         log.info("Source %r: %d listing(s) after filtering", source["name"], len(listings))
+        health.append({"name": source["name"], "count": len(listings), "ok": True, "error": ""})
         collected.extend(listings)
     return collected
+
+
+def retain_from_state(state, listings, failed_sources):
+    """Rebuild listings for sources that failed, from what the sheet already has.
+
+    Without this, one upstream 404 deletes every row that source contributed —
+    a transient outage becomes permanent data loss, and the rows come back as
+    "new" whenever the source recovers, resetting their Date Added. Retaining
+    them keeps a broken source's listings visible and stable until it returns.
+    """
+    if not failed_sources:
+        return []
+
+    have = {listing.key for listing in listings}
+    retained = []
+    for existing in state.values():
+        if existing.get("source") not in failed_sources:
+            continue
+        key = (
+            existing["company"].strip().lower(),
+            existing["role"].strip().lower(),
+            existing["apply_url"].strip().lower(),
+        )
+        if key in have:
+            continue
+        retained.append(
+            md.Listing(
+                company=existing["company"],
+                role=existing["role"],
+                location=existing.get("location", ""),
+                apply_url=existing["apply_url"],
+                source=existing.get("source", ""),
+                salary=existing.get("salary", ""),
+            )
+        )
+    if retained:
+        log.warning(
+            "Retained %d listing(s) from failed source(s) %s rather than deleting them",
+            len(retained),
+            ", ".join(sorted(failed_sources)),
+        )
+    return retained
+
+
+def failed_source_names(health):
+    """Sources that errored or came back empty this run."""
+    return {h["name"] for h in health if not h["ok"] or h["count"] == 0}
+
+
+def assess_health(health, prior_counts, drop_threshold=0.5):
+    """Return human-readable warnings about sources that broke or shrank.
+
+    `prior_counts` maps source name -> how many rows that source has on the
+    sheet right now. A source that parses but returns far less than last time
+    has usually had its upstream format changed underneath it, which is just as
+    damaging as an outright failure and much easier to miss.
+    """
+    warnings = []
+    for entry in health:
+        name, count = entry["name"], entry["count"]
+        if not entry["ok"]:
+            warnings.append(f"{name}: FAILED ({entry['error']})")
+            continue
+        if count == 0:
+            warnings.append(f"{name}: parsed 0 listings — upstream format probably changed")
+            continue
+        prior = prior_counts.get(name, 0)
+        if prior and count < prior * drop_threshold:
+            warnings.append(
+                f"{name}: {count} listings, down from {prior} — upstream may have changed"
+            )
+    return warnings

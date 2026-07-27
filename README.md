@@ -11,6 +11,14 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 
 Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.
 
+### When a source breaks
+
+One bad upstream must not take down the run, but degrading quietly is its own failure. Two protections:
+
+**Rows are retained, not deleted.** A source returning a 404 used to delete every row it contributed — a transient outage becoming permanent data loss, with the listings returning later as "new" and their `Date Added` reset. Now those rows are rebuilt from the sheet and kept until the source recovers. Verified: simulating a speedyapply 404 keeps all 216 rows instead of dropping to 95.
+
+**The digest says so, loudly.** A failure, an empty parse, or a drop of more than 50% versus what that source contributed last run all produce a 🚨 warning pinned to the top of the message, and the headline changes to `⚠️ source problem`. Without this a broken source looks exactly like a quiet day.
+
 ### Deduplication
 
 The same job appears in more than one list under different URLs and titles. Two fingerprints run in order:
