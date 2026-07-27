@@ -1,14 +1,42 @@
 # Internship Tracker
 
-Fetches Summer 2027 internship listings from [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships), filters them, and syncs them to a Google Sheet. Runs daily on GitHub Actions — nothing needs to be running locally.
+Aggregates Summer 2027 internship listings from multiple public sources, filters them against one profile, deduplicates across sources, and syncs to a styled Google Sheet. Runs daily on GitHub Actions — nothing needs to be running locally.
+
+## Sources
+
+| Source | Listings | Notes |
+|---|---|---|
+| [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also supplies the Programs tab |
+| [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
+
+Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.
+
+### Deduplication
+
+The same job appears in more than one list under different URLs and titles. Two fingerprints run in order:
+
+1. **URL job id** — the trailing numeric id from the ATS path, after stripping query params. Collapses Google's `.../results/85564713261245126` and `.../results/85564713261245126-software-engineering-intern/`, and vanshb03-style `?utm_source=` tracking.
+2. **Company + role text** — case, punctuation, whitespace and emoji normalized away, *nothing else*.
+
+The second is deliberately conservative. Stripping seasons and parentheticals — the obvious move — merged all of these into single rows:
+
+| Merged incorrectly | Reality |
+|---|---|
+| Western Digital *Summer 2027 Intern* / *Winter 2027 Co-op* | different programs |
+| Optiver *(Austin)* / *(Chicago)* | different offices |
+| Kudu Dynamics *(1)* / *(2)* / *(3)* | three distinct roles |
+| Jane Street *Winter Co-Op* / *Summer Internship* | different terms |
+
+The costs aren't symmetric: a false merge hides a real posting permanently, a missed duplicate just shows up twice. It errs toward showing twice. Earlier entries in `SOURCES` win, so the list order is a priority order.
 
 ## What it does
 
-1. Downloads the source repo's raw README
-2. Parses the `## the list` and `## programs open now` markdown tables
+1. Downloads each configured source's raw README
+2. Parses their tables, which differ in columns, link syntax and subsection layout
 3. Drops closed roles (🔒) and anything gated on a graduate degree
 4. Keeps roles matching the keyword filter in `config.py`
-5. Writes to a styled Google Sheet, preserving your manual checkboxes
+5. Deduplicates across sources
+6. Writes to a styled Google Sheet, preserving your manual entries
 
 Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so you can see them.
 
@@ -22,15 +50,17 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | B | Role (emoji flags preserved) |
 | C | Location |
 | D | Apply link |
-| E | **Deadline** — mostly yours to fill in (see below) |
-| F | Date Added — when the script first saw it |
-| G | Remote? |
-| H | Game? — game development role |
-| I | Status — `NEW` for 3 days, then `SEEN` |
-| J | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
-| K | Last Checked — when the link was last verified |
-| L | **Applied?** — yours to toggle |
-| M | **Remove?** — check to delete the row |
+| E | Salary — where the source publishes it |
+| F | **Deadline** — mostly yours to fill in (see below) |
+| G | Date Added — when the script first saw it |
+| H | Remote? |
+| I | Game? — game development role |
+| J | Status — `NEW` for 3 days, then `SEEN` |
+| K | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
+| L | Last Checked — when the link was last verified |
+| M | Source — which list it came from |
+| N | **Applied?** — yours to toggle |
+| O | **Remove?** — check to delete the row |
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
@@ -46,7 +76,7 @@ Check `Remove?` on anything you don't want. It disappears on the next run and wo
 
 ### Deadline
 
-**Measured against the live source, only 3 of 95 postings state a deadline in machine-readable form — about 3%.** Job boards overwhelmingly don't publish one. So this column is primarily yours to fill in by hand; the script fills it only when a page explicitly says something like "apply by January 15, 2027" *and* the cell is still blank. Anything you type wins permanently.
+**Measured against the live sources, roughly 3% of postings state a deadline in machine-readable form.** Job boards overwhelmingly don't publish one. So this column is primarily yours to fill in by hand; the script fills it only when a page explicitly says something like "apply by January 15, 2027" *and* the cell is still blank. Anything you type wins permanently.
 
 A bare date on a job page is usually the start date or posting date, so extraction requires an explicit cue phrase ahead of the date and won't reach across a sentence boundary.
 
@@ -67,7 +97,7 @@ Every run fetches each application URL and classifies it:
 
 The honest limitation: a `200` does not prove a role is still open. Greenhouse, Lever and Ashby 404 properly when a job closes, so detection is reliable there. Workday and iCIMS ship a JavaScript shell with no readable text, which is why they come back `UNKNOWN` rather than being guessed at.
 
-**Cadence:** each listing is re-checked every **7 days**, not every run — tracked per row in `Last Checked`. A listing the script has never seen is checked immediately, so new arrivals are always verified on arrival. This keeps the daily run fast and avoids hitting the job boards 95 times a day.
+**Cadence:** each listing is re-checked every **7 days**, not every run — tracked per row in `Last Checked`. A listing the script has never seen is checked immediately, so new arrivals are always verified on arrival. This keeps the daily run fast and avoids hitting the job boards hundreds of times a day.
 
 Skip it with `--skip-links`, or force a full sweep now with `--force-links`.
 
@@ -77,7 +107,33 @@ Skip it with `--skip-links`, or force a full sweep now with `--force-links`.
 
 Bare `engine` is deliberately **not** a keyword: it matches jet engines, search engines and rules engines far more often than game engines. `game engine` is listed in full instead.
 
-**Reality check:** as measured against the live source, **0 of 95 listings are game roles.** The source repo's stated scope is "software engineering, data and ML, hardware, quant, and product" — game development isn't a category it covers. This prioritization works the moment one appears, but the source may never carry many. Dedicated game industry boards (Hitmarker, Work With Indies, GameJobs.co) would be a better source for that specifically.
+**Reality check.** Measured across ~4,100 rows in seven public internship lists, plus 1,144 jobs pulled directly from 14 game studio job boards, there is currently **one** game-adjacent Summer 2027 internship: Brunswick's Computer Graphics Software Developer Intern. It's on the sheet, sorted to the top by this rule.
+
+That is a timing artifact, not a filter problem. Quant firms and big tech post 12+ months ahead; **game studios post summer internships between September and January**. Riot, Epic and Naughty Dog simply haven't opened Summer 2027 yet.
+
+### Planned: studio job boards
+
+Game studios expose public, unauthenticated JSON APIs through their ATS. No scraping, no auth, and the `id` field is a clean dedup key:
+
+```
+https://boards-api.greenhouse.io/v1/boards/{board}/jobs
+https://api.ashbyhq.com/posting-api/job-board/{board}
+https://api.lever.co/v0/postings/{board}?mode=json
+```
+
+Verified live boards:
+
+| ATS | Boards |
+|---|---|
+| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` |
+| Ashby | `supercell` `thatgamecompany` |
+| Lever | `skydance` `jamcity` |
+
+Not found on these three (different ATS, needs identifying): Sucker Punch, Santa Monica Studio, 343, Obsidian, Larian, CD Projekt Red, Gearbox, Zynga, King, Niantic, Behaviour, Unity, Valve, Respawn, Blizzard, Activision, EA.
+
+**Worth building in late August**, so it's running before the September–January window. Building it earlier means maintaining board slugs against an empty result set.
+
+Handshake is not an option: it's behind Cornell SSO, has no public API, and automated access violates its terms.
 
 ### Sort order
 
@@ -156,8 +212,10 @@ After editing, check the effect before syncing:
 - Formatting errors are caught after data is written, so a styling failure can't cost you listings
 - Link-check failures degrade to `UNKNOWN` per URL; one bad host can't fail the run
 
-### Two traps worth recording
+### Three traps worth recording
 
 **`deleteTable` deletes the table _and its data rows_.** Rebuilding the table each run by delete-then-add silently emptied every text column while leaving the checkboxes behind. `styling.py` uses `updateTable` to resize in place and never issues `deleteTable`.
+
+**A Table's BOOLEAN column coerces whatever you write into it.** Inserting `Salary` and `Source` shifted the checkbox columns, but the existing Table still declared BOOLEAN at the *old* positions — so writing rows turned `Last Checked` and `Source` into `FALSE` on 121 rows. `styling.sync_table_schema` now runs **before** the data write, not after.
 
 **Header rewrites must migrate data.** `read_listing_state` derives column positions from row 1 of the sheet. If the header is rewritten to a new layout before state is read, new positions get mapped onto old rows and every column shifts — silently, and the corruption then feeds itself on the next run. `_migrate_columns` remaps existing rows by column *name* whenever the header changes, so adding or reordering a column is safe.
