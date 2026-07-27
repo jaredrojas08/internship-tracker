@@ -92,14 +92,16 @@ def main(argv=None):
         log.error("Could not open the spreadsheet: %s", exc)
         return 1
 
+    # A dry run must not touch the spreadsheet at all, including tab creation.
+    ro = args.dry_run
     listings_ws = sheets.ensure_worksheet(
-        spreadsheet, config.LISTINGS_TAB, config.LISTINGS_HEADERS
+        spreadsheet, config.LISTINGS_TAB, config.LISTINGS_HEADERS, read_only=ro
     )
     programs_ws = sheets.ensure_worksheet(
-        spreadsheet, config.PROGRAMS_TAB, config.PROGRAMS_HEADERS
+        spreadsheet, config.PROGRAMS_TAB, config.PROGRAMS_HEADERS, read_only=ro
     )
     removed_ws = sheets.ensure_worksheet(
-        spreadsheet, config.REMOVED_TAB, config.REMOVED_HEADERS, hidden=True
+        spreadsheet, config.REMOVED_TAB, config.REMOVED_HEADERS, hidden=True, read_only=ro
     )
 
     # 3. Read current state, keyed by listing identity rather than row number.
@@ -145,6 +147,8 @@ def _can_connect():
 
 def _existing_program_dates(worksheet):
     """Map program key -> the Date Added already recorded for it."""
+    if worksheet is None:
+        return {}
     rows = worksheet.get_all_values()
     if len(rows) < 2:
         return {}

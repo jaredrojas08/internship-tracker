@@ -45,11 +45,18 @@ def connect():
     return client.open_by_key(config.get_sheet_id())
 
 
-def ensure_worksheet(spreadsheet, title, headers, hidden=False):
-    """Get a worksheet by title, creating it with headers if absent."""
+def ensure_worksheet(spreadsheet, title, headers, hidden=False, read_only=False):
+    """Get a worksheet by title, creating it with headers if absent.
+
+    With read_only=True (dry runs) nothing is created or rewritten; a missing
+    tab simply returns None so the caller can treat its state as empty.
+    """
     try:
         worksheet = spreadsheet.worksheet(title)
     except gspread.WorksheetNotFound:
+        if read_only:
+            log.info("Tab %r does not exist yet (would be created).", title)
+            return None
         log.info("Creating tab %r", title)
         worksheet = spreadsheet.add_worksheet(
             title=title, rows=1000, cols=max(len(headers), 10)
@@ -60,7 +67,7 @@ def ensure_worksheet(spreadsheet, title, headers, hidden=False):
         return worksheet
 
     existing = worksheet.row_values(1)
-    if existing != headers:
+    if existing != headers and not read_only:
         log.info("Rewriting header row on %r", title)
         worksheet.update(values=[headers], range_name="A1")
     return worksheet
@@ -75,6 +82,8 @@ def read_listing_state(worksheet):
     The key is the same (company, role, apply_url) tuple Listing.key produces,
     so parsed listings and sheet rows can be matched without relying on order.
     """
+    if worksheet is None:
+        return {}
     rows = worksheet.get_all_values()
     if len(rows) < 2:
         return {}
@@ -111,6 +120,8 @@ def read_listing_state(worksheet):
 
 def read_removed_keys(worksheet):
     """Keys the user has previously removed. These must never be re-added."""
+    if worksheet is None:
+        return set()
     rows = worksheet.get_all_values()
     if len(rows) < 2:
         return set()
