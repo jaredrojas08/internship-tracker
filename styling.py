@@ -26,6 +26,11 @@ COL_SOURCE = 12
 COL_APPLIED = 13
 COL_REMOVE = 14
 
+# Programs tab.
+COL_PROG_DEADLINE = 4
+COL_PROG_APPLIED = 6
+COL_PROG_REMOVE = 7
+
 
 def _a1(index):
     """0-based column index -> A1 letter, for use inside conditional formulas."""
@@ -173,6 +178,57 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
     ]
 
 
+def _program_rules(sheet_id, num_rows):
+    """Programs tab: mark applied rows, and grey out passed deadlines.
+
+    The Deadline column here is free text from the source ("rolling",
+    "check site", "approx June 14 to 30, 2026"), so the passed-deadline rule is
+    guarded on ISNUMBER — it only fires when the cell holds a real date.
+    """
+    if num_rows < 1:
+        return []
+
+    applied_col = _a1(COL_PROG_APPLIED)
+    deadline_col = _a1(COL_PROG_DEADLINE)
+    width = len(config.PROGRAMS_HEADERS)
+
+    return [
+        {
+            "ranges": [_grid(sheet_id, 1, num_rows + 1, 0, width)],
+            "booleanRule": {
+                "condition": {
+                    "type": "CUSTOM_FORMULA",
+                    "values": [
+                        {
+                            "userEnteredValue": f"=AND(ISNUMBER(${deadline_col}2),"
+                            f"${deadline_col}2<TODAY())"
+                        }
+                    ],
+                },
+                "format": {
+                    "backgroundColor": hex_to_rgb(PALETTE["light_warm_grey"]),
+                    "textFormat": _text_format(PALETTE["warm_brown"]),
+                },
+            },
+        },
+        {
+            "ranges": [
+                _grid(sheet_id, 1, num_rows + 1, COL_PROG_APPLIED, COL_PROG_APPLIED + 1)
+            ],
+            "booleanRule": {
+                "condition": {
+                    "type": "CUSTOM_FORMULA",
+                    "values": [{"userEnteredValue": f"=${applied_col}2=TRUE"}],
+                },
+                "format": {
+                    "backgroundColor": hex_to_rgb(PALETTE["warm_brown"]),
+                    "textFormat": _text_format(PALETTE["white"], bold=True),
+                },
+            },
+        },
+    ]
+
+
 def _width_requests(sheet_id):
     """Auto-fit everything, then cap Role and Location so they can't sprawl."""
     return [
@@ -311,6 +367,7 @@ def sync_table_schema(spreadsheet, listings_ws, programs_ws, num_listings, num_p
             config.PROGRAMS_HEADERS,
             num_programs,
             PALETTE["light_warm_grey"],
+            checkbox_cols={COL_PROG_APPLIED, COL_PROG_REMOVE},
         ),
     ]
     spreadsheet.batch_update({"requests": requests})
@@ -358,6 +415,7 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
             config.PROGRAMS_HEADERS,
             num_programs,
             PALETTE["light_warm_grey"],
+            checkbox_cols={COL_PROG_APPLIED, COL_PROG_REMOVE},
         )
     )
 
@@ -366,6 +424,11 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
         for i, rule in enumerate(
             _conditional_rules(listings_id, num_listings, len(config.LISTINGS_HEADERS))
         )
+    ]
+
+    requests += [
+        {"addConditionalFormatRule": {"rule": rule, "index": i}}
+        for i, rule in enumerate(_program_rules(programs_id, num_programs))
     ]
 
     requests += _width_requests(listings_id)

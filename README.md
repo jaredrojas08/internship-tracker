@@ -64,9 +64,11 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
-**Tab: Programs & Fellowships** — org, opportunity, link, type, deadline, date added.
+**Tab: Programs & Fellowships** — org, opportunity, link, type, deadline, date added, plus **Applied?** and **Remove?** checkboxes with the same semantics as the listings tab. Keyed on organization + opportunity.
 
-**Tab: Removed** (hidden) — tombstones. Without this a removed row would be re-added on the next run, since the script would no longer see it in the sheet and would treat it as new. To un-remove something, delete its row here.
+Removed programs tombstone to a separate hidden **Removed Programs** tab rather than the listings one, since programs key on two fields and listings on three. A program whose Deadline cell holds a real date greys out once it has passed; most are free text like `rolling` or `check site`, so that rule is guarded on `ISNUMBER`.
+
+**Tabs: Removed / Removed Programs** (hidden) — tombstones. Without this a removed row would be re-added on the next run, since the script would no longer see it in the sheet and would treat it as new. To un-remove something, delete its row here.
 
 ### The columns you own
 

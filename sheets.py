@@ -326,9 +326,70 @@ def rows_to_values(rows):
     ]
 
 
-def programs_to_values(programs, state_dates, today_str):
-    values = []
+def read_program_state(worksheet):
+    """Return {key: {...}} for the programs tab, keyed on org + opportunity."""
+    if worksheet is None:
+        return {}
+    rows = worksheet.get_all_values()
+    if len(rows) < 2:
+        return {}
+
+    headers = rows[0]
+    idx = {name: (headers.index(name) if name in headers else None) for name in config.PROGRAMS_HEADERS}
+    state = {}
+
+    for row in rows[1:]:
+        def cell(name):
+            i = idx.get(name)
+            return row[i].strip() if i is not None and i < len(row) else ""
+
+        org, opportunity = cell("Organization"), cell("Opportunity")
+        if not (org or opportunity):
+            continue
+        state[(org.lower(), opportunity.lower())] = {
+            "date_added": cell("Date Added"),
+            "applied": cell("Applied?") in TRUTHY,
+            "remove": cell("Remove?") in TRUTHY,
+        }
+    return state
+
+
+def read_removed_program_keys(worksheet):
+    """Program keys the user has removed. These must never be re-added."""
+    if worksheet is None:
+        return set()
+    rows = worksheet.get_all_values()
+    if len(rows) < 2:
+        return set()
+    removed = set()
+    for row in rows[1:]:
+        padded = row + [""] * 2
+        org, opportunity = padded[0].strip(), padded[1].strip()
+        if org or opportunity:
+            removed.add((org.lower(), opportunity.lower()))
+    return removed
+
+
+def build_program_rows(programs, state, removed_keys, as_of=None):
+    """Merge parsed programs with sheet state. Returns (values, dropped).
+
+    Mirrors build_rows: Applied? is carried forward untouched, Remove? drops the
+    row, and Date Added is preserved so it reflects first sighting.
+    """
+    as_of = as_of or today()
+    today_str = as_of.isoformat()
+    values, dropped = [], []
+
     for program in programs:
+        key = program.key
+        if key in removed_keys:
+            continue
+
+        existing = state.get(key)
+        if existing and existing["remove"]:
+            dropped.append(program)
+            continue
+
         values.append(
             [
                 program.org,
@@ -336,10 +397,24 @@ def programs_to_values(programs, state_dates, today_str):
                 program.link,
                 program.type,
                 program.deadline,
-                state_dates.get(program.key, today_str),
+                (existing or {}).get("date_added") or today_str,
+                bool((existing or {}).get("applied", False)),
+                False,
             ]
         )
-    return values
+    return values, dropped
+
+
+def append_removed_programs(worksheet, dropped, as_of=None):
+    """Tombstone removed programs so the next run doesn't re-add them."""
+    if not dropped:
+        return
+    as_of = as_of or today()
+    worksheet.append_rows(
+        [[d.org, d.opportunity, as_of.isoformat()] for d in dropped],
+        value_input_option="USER_ENTERED",
+    )
+    log.info("Tombstoned %d removed program(s)", len(dropped))
 
 
 # --- Writing ---------------------------------------------------------------

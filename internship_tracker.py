@@ -46,7 +46,7 @@ def parse_args(argv=None):
     return ap.parse_args(argv)
 
 
-def report(new_listings, dropped, total, programs, rows=()):
+def report(new_listings, dropped, total, programs, rows=(), dropped_programs=()):
     log.info("-" * 60)
     log.info("%d listing(s) on the sheet after this run", total)
     log.info("%d program(s)", len(programs))
@@ -69,6 +69,10 @@ def report(new_listings, dropped, total, programs, rows=()):
         log.info("%d listing(s) removed via checkbox:", len(dropped))
         for listing in dropped:
             log.info("  - %s — %s", listing.company, listing.role)
+    if dropped_programs:
+        log.info("%d program(s) removed via checkbox:", len(dropped_programs))
+        for program in dropped_programs:
+            log.info("  - %s — %s", program.org, program.opportunity)
     log.info("-" * 60)
 
 
@@ -129,6 +133,13 @@ def main(argv=None):
     removed_ws = sheets.ensure_worksheet(
         spreadsheet, config.REMOVED_TAB, config.REMOVED_HEADERS, hidden=True, read_only=ro
     )
+    removed_programs_ws = sheets.ensure_worksheet(
+        spreadsheet,
+        config.REMOVED_PROGRAMS_TAB,
+        config.REMOVED_PROGRAMS_HEADERS,
+        hidden=True,
+        read_only=ro,
+    )
 
     # 3. Read current state, keyed by listing identity rather than row number.
     state = sheets.read_listing_state(listings_ws)
@@ -160,19 +171,22 @@ def main(argv=None):
         listings, state, removed_keys, link_status=link_status
     )
 
-    # 4. Programs: preserve the date each was first seen.
-    today_str = sheets.today().isoformat()
-    program_dates = _existing_program_dates(programs_ws)
-    program_values = sheets.programs_to_values(programs, program_dates, today_str)
+    # 4. Programs: same user-owned checkbox handling as the listings tab.
+    program_state = sheets.read_program_state(programs_ws)
+    removed_program_keys = sheets.read_removed_program_keys(removed_programs_ws)
+    program_values, dropped_programs = sheets.build_program_rows(
+        programs, program_state, removed_program_keys
+    )
 
     if args.dry_run:
         log.info("DRY RUN — nothing will be written.")
-        report(new_listings, dropped, len(rows), programs, rows)
+        report(new_listings, dropped, len(rows), programs, rows, dropped_programs)
         return 0
 
     # 5. Write. The table's column types must be aligned with the current
     #    headers first — see styling.sync_table_schema.
     sheets.append_removed(removed_ws, dropped)
+    sheets.append_removed_programs(removed_programs_ws, dropped_programs)
     if not args.no_style:
         try:
             styling.sync_table_schema(
@@ -189,7 +203,7 @@ def main(argv=None):
         except Exception as exc:  # noqa: BLE001 - styling must never lose data
             log.warning("Formatting pass failed (data is written and safe): %s", exc)
 
-    report(new_listings, dropped, len(rows), programs, rows)
+    report(new_listings, dropped, len(rows), programs, rows, dropped_programs)
     return 0
 
 
@@ -201,21 +215,6 @@ def _can_connect():
     except RuntimeError:
         return False
 
-
-def _existing_program_dates(worksheet):
-    """Map program key -> the Date Added already recorded for it."""
-    if worksheet is None:
-        return {}
-    rows = worksheet.get_all_values()
-    if len(rows) < 2:
-        return {}
-    dates = {}
-    for row in rows[1:]:
-        padded = row + [""] * len(config.PROGRAMS_HEADERS)
-        org, opportunity, date_added = padded[0].strip(), padded[1].strip(), padded[5].strip()
-        if org or opportunity:
-            dates[(org.lower(), opportunity.lower())] = date_added or ""
-    return {k: v for k, v in dates.items() if v}
 
 
 if __name__ == "__main__":

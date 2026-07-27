@@ -20,6 +20,7 @@ REQUEST_TIMEOUT = 30
 LISTINGS_TAB = "Internship Listings"
 PROGRAMS_TAB = "Programs & Fellowships"
 REMOVED_TAB = "Removed"  # hidden tombstone tab, keeps removals from being re-added
+REMOVED_PROGRAMS_TAB = "Removed Programs"  # same idea, but programs key on 2 fields
 
 LISTINGS_HEADERS = [
     "Company",
@@ -38,8 +39,18 @@ LISTINGS_HEADERS = [
     "Applied?",
     "Remove?",
 ]
-PROGRAMS_HEADERS = ["Organization", "Opportunity", "Link", "Type", "Deadline", "Date Added"]
+PROGRAMS_HEADERS = [
+    "Organization",
+    "Opportunity",
+    "Link",
+    "Type",
+    "Deadline",
+    "Date Added",
+    "Applied?",
+    "Remove?",
+]
 REMOVED_HEADERS = ["Company", "Role", "Apply Link", "Date Removed"]
+REMOVED_PROGRAMS_HEADERS = ["Organization", "Opportunity", "Date Removed"]
 
 # Columns the user owns. The script reads these but must never overwrite them
 # with a default once a row exists. Deadline is here because only ~3% of job
