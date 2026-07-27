@@ -8,6 +8,7 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 |---|---|---|
 | [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also supplies the Programs tab |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
+| Game studio ATS boards (`studios.py`) | 0 out of season | 14 boards over Greenhouse / Ashby / Lever |
 
 Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.
 
@@ -159,9 +160,9 @@ Bare `engine` is deliberately **not** a keyword: it matches jet engines, search 
 
 That is a timing artifact, not a filter problem. Quant firms and big tech post 12+ months ahead; **game studios post summer internships between September and January**. Riot, Epic and Naughty Dog simply haven't opened Summer 2027 yet.
 
-### Planned: studio job boards
+### Studio job boards
 
-Game studios expose public, unauthenticated JSON APIs through their ATS. No scraping, no auth, and the `id` field is a clean dedup key:
+Live in `studios.py`. Game studios expose public, unauthenticated JSON APIs through their ATS. No scraping, no auth, and the `id` field is a clean dedup key:
 
 ```
 https://boards-api.greenhouse.io/v1/boards/{board}/jobs
@@ -179,7 +180,11 @@ Verified live boards:
 
 Not found on these three (different ATS, needs identifying): Sucker Punch, Santa Monica Studio, 343, Obsidian, Larian, CD Projekt Red, Gearbox, Zynga, King, Niantic, Behaviour, Unity, Valve, Respawn, Blizzard, Activision, EA.
 
-**Worth building in late August**, so it's running before the September–January window. Building it earlier means maintaining board slugs against an empty result set.
+Three rules specific to this source:
+
+- **Everything from a studio board counts as a game role**, regardless of title. "Software Engineer Intern" at Riot is game work; keyword matching would miss it.
+- **The role keyword filter is bypassed**, because studios use titles like "Associate Technical Designer" that a SWE-oriented keyword list rejects. The eligibility gate (no PhD/Master's) and a US-location filter still apply. Given how few game roles exist at all, a false positive from Riot costs one row while a false negative costs the job.
+- **Empty is not an error.** The source is marked `allow_empty`, so months of zero results raise no health alarm. But a *total* board outage raises — otherwise infrastructure failure would be indistinguishable from the off-season. Losing more than half the boards raises too; losing one is tolerated silently, since studios change ATS occasionally.
 
 Handshake is not an option: it's behind Cornell SSO, has no public API, and automated access violates its terms.
 

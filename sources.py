@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import config
 import parser as md
+import studios
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +126,14 @@ SOURCES = [
         "url": "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md",
         "parse": parse_speedyapply,
     },
+    {
+        # Not a markdown list: queries game studio ATS APIs directly.
+        "name": "studios",
+        "fetch": studios.fetch_studio_listings,
+        # Studios post summer internships Sept–Jan. Empty for most of the year
+        # is the calendar, not a breakage, so it must not raise a health alarm.
+        "allow_empty": True,
+    },
 ]
 
 
@@ -230,16 +239,34 @@ def fetch_all(only=None, cache=None, health=None):
         if only and source["name"] not in only:
             continue
         try:
-            if source["url"] not in cache:
-                cache[source["url"]] = md.fetch_readme(source["url"])
-            markdown = cache[source["url"]]
-            listings = source["parse"](markdown)
+            if "fetch" in source:
+                listings = source["fetch"]()
+            else:
+                if source["url"] not in cache:
+                    cache[source["url"]] = md.fetch_readme(source["url"])
+                listings = source["parse"](cache[source["url"]])
         except Exception as exc:  # noqa: BLE001 - one bad source must not kill the run
             log.warning("Source %r failed, continuing without it: %s", source["name"], exc)
-            health.append({"name": source["name"], "count": 0, "ok": False, "error": str(exc)[:120]})
+            health.append(
+                {
+                    "name": source["name"],
+                    "count": 0,
+                    "ok": False,
+                    "error": str(exc)[:120],
+                    "allow_empty": source.get("allow_empty", False),
+                }
+            )
             continue
         log.info("Source %r: %d listing(s) after filtering", source["name"], len(listings))
-        health.append({"name": source["name"], "count": len(listings), "ok": True, "error": ""})
+        health.append(
+            {
+                "name": source["name"],
+                "count": len(listings),
+                "ok": True,
+                "error": "",
+                "allow_empty": source.get("allow_empty", False),
+            }
+        )
         collected.extend(listings)
     return collected
 
@@ -288,7 +315,11 @@ def retain_from_state(state, listings, failed_sources):
 
 def failed_source_names(health):
     """Sources that errored or came back empty this run."""
-    return {h["name"] for h in health if not h["ok"] or h["count"] == 0}
+    return {
+        h["name"]
+        for h in health
+        if not h["ok"] or (h["count"] == 0 and not h.get("allow_empty"))
+    }
 
 
 def assess_health(health, prior_counts, drop_threshold=0.5):
@@ -306,6 +337,8 @@ def assess_health(health, prior_counts, drop_threshold=0.5):
             warnings.append(f"{name}: FAILED ({entry['error']})")
             continue
         if count == 0:
+            if entry.get("allow_empty"):
+                continue  # expected to be empty out of season
             warnings.append(f"{name}: parsed 0 listings — upstream format probably changed")
             continue
         prior = prior_counts.get(name, 0)

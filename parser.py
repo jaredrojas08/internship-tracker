@@ -32,6 +32,10 @@ class Listing:
     source_added: str = ""  # the repo's own "Added" date, often "-"
     source: str = ""  # which upstream list this came from
     salary: str = ""  # only some sources publish this
+    # Set for postings that came from a game studio's own job board. A role
+    # titled "Software Engineer Intern" at Riot is game work regardless of
+    # whether the title contains a game keyword.
+    from_game_studio: bool = False
 
     @property
     def is_remote(self):
@@ -39,7 +43,7 @@ class Listing:
 
     @property
     def is_game(self):
-        return config.is_game_role(self.role)
+        return self.from_game_studio or config.is_game_role(self.role)
 
     @property
     def key(self):
