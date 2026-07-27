@@ -13,6 +13,10 @@ log = logging.getLogger(__name__)
 CLOSED_FLAG = "🔒"
 
 MARKDOWN_LINK = re.compile(r"\[(?P<text>[^\]]*)\]\((?P<url>[^)]+)\)")
+# Several sources wrap the apply link in an HTML anchor around a badge image
+# rather than using markdown link syntax.
+HTML_ANCHOR = re.compile(r"""<a\s[^>]*href=["'](?P<url>[^"']+)["']""", re.IGNORECASE)
+HTML_TAG = re.compile(r"<[^>]+>")
 
 
 class ParseError(Exception):
@@ -26,6 +30,8 @@ class Listing:
     location: str
     apply_url: str
     source_added: str = ""  # the repo's own "Added" date, often "-"
+    source: str = ""  # which upstream list this came from
+    salary: str = ""  # only some sources publish this
 
     @property
     def is_remote(self):
@@ -97,25 +103,64 @@ def extract_section_table(markdown, heading):
     if next_heading:
         body = body[: next_heading.start()]
 
+    tables = _split_tables(body)
+    if not tables:
+        log.warning("No table found under '## %s'.", heading)
+        return None, []
+
+    headers, rows = tables[0]
+    for other_headers, other_rows in tables[1:]:
+        if other_headers == headers:
+            rows = rows + other_rows
+    return headers, rows
+
+
+def extract_section_tables(markdown, heading):
+    """Every table under a heading, each with its own header row.
+
+    Sources that split one list into subsections don't necessarily keep the
+    same columns: speedyapply's "Other" subsection omits the Salary column its
+    FAANG+ subsection has. Collapsing them onto one header shifts every cell.
+    """
+    pattern = re.compile(rf"^#{{2,4}}\s+{re.escape(heading)}\s*$", re.IGNORECASE | re.MULTILINE)
+    match = pattern.search(markdown)
+    if not match:
+        log.warning("Heading %r not found.", heading)
+        return []
+
+    body = markdown[match.end() :]
+    next_section = re.search(r"^##\s+(?!#)", body, re.MULTILINE)
+    if next_section:
+        body = body[: next_section.start()]
+    return _split_tables(body)
+
+
+def _split_tables(body):
+    """Break a block of markdown into [(headers, rows), ...], one per table."""
+    tables = []
     headers, rows = None, []
+
     for line in body.splitlines():
         stripped = line.strip()
         if not stripped.startswith("|"):
-            if headers is not None and rows:
-                break  # table ended
             continue
         cells = _split_row(stripped)
-        if headers is None:
-            headers = cells
-            continue
         if _is_separator(cells):
             continue
-        rows.append(cells)
+        # A row whose width differs, or that repeats header-like text, starts a
+        # new table.
+        if headers is None:
+            headers, rows = cells, []
+        elif len(cells) != len(headers) or cells == headers:
+            if rows:
+                tables.append((headers, rows))
+            headers, rows = cells, []
+        else:
+            rows.append(cells)
 
-    if headers is None:
-        log.warning("No table found under '## %s'.", heading)
-        return None, []
-    return headers, rows
+    if headers is not None and rows:
+        tables.append((headers, rows))
+    return tables
 
 
 def _column_index(headers, *candidates):
@@ -128,18 +173,24 @@ def _column_index(headers, *candidates):
 
 
 def extract_url(cell):
-    """Pull the URL out of a markdown link cell, or return a bare URL as-is."""
+    """Pull the apply URL from a cell, whichever link syntax the source uses."""
     match = MARKDOWN_LINK.search(cell)
     if match:
         return match.group("url").strip()
-    if cell.startswith("http"):
-        return cell.strip()
+    match = HTML_ANCHOR.search(cell)
+    if match:
+        return match.group("url").strip()
+    stripped = cell.strip()
+    if stripped.startswith("http"):
+        return stripped
     return ""
 
 
 def strip_links(cell):
-    """Replace markdown links with their visible text."""
-    return MARKDOWN_LINK.sub(lambda m: m.group("text"), cell).strip()
+    """Reduce a cell to its visible text, dropping markdown and HTML markup."""
+    text = MARKDOWN_LINK.sub(lambda m: m.group("text"), cell)
+    text = HTML_TAG.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def parse_listings(markdown):
