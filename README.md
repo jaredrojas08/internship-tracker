@@ -95,7 +95,7 @@ An application still unanswered after `FOLLOW_UP_AFTER_DAYS` (21) highlights and
 
 The sheet is a pull interface — only useful when you remember to open it. The digest pushes what changed:
 
-- new listings, with game roles called out first
+- new listings, with game roles called out first — **excluding any that are already `DEAD` or `CLOSED`**, since a notification is a claim there's something to apply to
 - deadlines within 14 days you haven't applied to
 - applications past the follow-up window
 - roles you applied to whose posting has since closed

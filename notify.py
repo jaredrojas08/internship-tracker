@@ -40,6 +40,24 @@ def build_digest(rows, new_listings, dropped, as_of=None):
     """
     as_of = as_of or sheets.today()
 
+    # A listing can arrive already dead: upstream edits a row, its identity key
+    # changes, and it re-enters as "new" even though the posting is gone. Those
+    # still land on the sheet (sunk to the bottom) but must never be announced —
+    # a notification is a claim that there is something to apply to.
+    unapplicable = {
+        row["listing"].key
+        for row in rows
+        if row.get("listing") is not None
+        and row.get("Link Status") in ("DEAD", "CLOSED")
+    }
+    suppressed = [l for l in new_listings if l.key in unapplicable]
+    new_listings = [l for l in new_listings if l.key not in unapplicable]
+    if suppressed:
+        log.info(
+            "Suppressed %d new listing(s) from the digest — dead or closed on arrival",
+            len(suppressed),
+        )
+
     follow_ups = [r for r in rows if sheets.needs_follow_up(r, as_of)]
     dead_applied = [
         r
@@ -103,9 +121,12 @@ def build_digest(rows, new_listings, dropped, as_of=None):
         parts.append(f"🗑️ Removed {len(dropped)} listing(s) you unchecked.")
 
     total_applied = sum(1 for r in rows if r.get("Applied?"))
-    parts.append(f"\n{len(rows)} listings tracked · {total_applied} applied")
+    open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
+    parts.append(f"{open_roles} open · {total_applied} applied")
 
-    headline = _headline(len(new_listings), len(games), len(follow_ups), len(soon))
+    # Games are counted separately in the headline, so pass only the remainder
+    # to avoid announcing one game role as "1 game role, 1 new".
+    headline = _headline(len(other_new), len(games), len(follow_ups), len(soon))
     return headline, "\n\n".join(parts)
 
 
