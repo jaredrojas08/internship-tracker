@@ -92,7 +92,7 @@ def build_digest(rows, new_listings, dropped, as_of=None):
     if soon:
         parts.append(
             _section(
-                f"⏳ {len(soon)} deadline(s) within 14 days",
+                f"⏳ {len(soon)} known deadline(s) within 14 days",
                 [f"{due.isoformat()} — {r['Company']} — {r['Role']}" for due, r in soon],
             )
         )
@@ -147,15 +147,22 @@ def _quiet_digest(rows, as_of):
             upcoming.append((due, row))
     upcoming.sort(key=lambda pair: pair[0])
 
-    detail = f"{open_roles} open · {applied} applied"
+    lines = [f"{open_roles} open · {applied} applied"]
     if upcoming:
         due, row = upcoming[0]
         days = (due - as_of).days
-        detail += f" · next deadline {row['Company']} in {days}d ({due.isoformat()})"
+        # "known" is load-bearing: only a few percent of postings publish a
+        # machine-readable deadline, so this is the soonest one on record, not
+        # the soonest that exists. Stating the coverage keeps it honest.
+        known = sum(1 for r in rows if _date(r.get("Deadline")))
+        lines.append(
+            f"📅 Next *known* deadline: {row['Company']} in {days}d "
+            f"({due.isoformat()}) — only {known} of {len(rows)} listings publish one"
+        )
 
     return (
         "Internship tracker: no new activity",
-        f"😴 **No new listings today.**\n{detail}",
+        "😴 **No new listings today.**\n" + "\n".join(lines),
     )
 
 
