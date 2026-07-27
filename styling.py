@@ -123,30 +123,12 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
             },
         }
 
+    del data  # banding is handled natively by the table's rowsProperties
     return [
         text_eq(status_range, "NEW", PALETTE["dusty_rose"], bold=True),
         text_eq(status_range, "SEEN", PALETTE["muted_taupe"]),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
         formula([applied_range], "=$H2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
-        # Alternating rows, lowest priority.
-        formula([data], "=ISEVEN(ROW())", PALETTE["blush"]),
-        formula([data], "=ISODD(ROW())", PALETTE["soft_tan"]),
-    ]
-
-
-def _checkbox_requests(sheet_id, num_rows):
-    """Render the two user-owned columns as real checkboxes."""
-    if num_rows < 1:
-        return []
-    validation = {"condition": {"type": "BOOLEAN"}, "strict": True, "showCustomUi": True}
-    return [
-        {
-            "setDataValidation": {
-                "range": _grid(sheet_id, 1, num_rows + 1, col, col + 1),
-                "rule": validation,
-            }
-        }
-        for col in (COL_APPLIED, COL_REMOVE)
     ]
 
 
@@ -178,6 +160,65 @@ def _width_requests(sheet_id):
     ]
 
 
+def _color_style(hex_color):
+    return {"rgbColor": hex_to_rgb(hex_color)}
+
+
+def _table_request(sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
+    """Build a native Sheets Table over the header + data range.
+
+    The table supplies its own header and alternating-band colors, so the
+    Strawberry Kiss palette is applied through rowsProperties rather than
+    through conditional formatting. Columns listed in checkbox_cols become
+    real BOOLEAN columns, which is what renders them as toggles.
+    """
+    columns = []
+    for index, title in enumerate(headers):
+        column = {
+            "columnIndex": index,
+            "columnName": title,
+            "columnType": "BOOLEAN" if index in checkbox_cols else "TEXT",
+        }
+        columns.append(column)
+
+    return {
+        "addTable": {
+            "table": {
+                "name": name,
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": max(num_rows + 1, 2),
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(headers),
+                },
+                "rowsProperties": {
+                    "headerColorStyle": _color_style(header_bg),
+                    "firstBandColorStyle": _color_style(PALETTE["blush"]),
+                    "secondBandColorStyle": _color_style(PALETTE["soft_tan"]),
+                },
+                "columnProperties": columns,
+            }
+        }
+    }
+
+
+def _delete_table_requests(spreadsheet, sheet_ids):
+    """Drop existing tables so the range can be rebuilt at the new row count.
+
+    A table's range does not grow automatically when rows are appended below
+    it, so each run tears down and recreates rather than trying to resize.
+    """
+    metadata = spreadsheet.fetch_sheet_metadata()
+    requests = []
+    for sheet in metadata.get("sheets", []):
+        if sheet["properties"]["sheetId"] not in sheet_ids:
+            continue
+        for table in sheet.get("tables", []):
+            requests.append({"deleteTable": {"tableId": table["tableId"]}})
+    return requests
+
+
 def _clear_conditional_rules(spreadsheet, sheet_ids):
     """Delete every existing rule on the given sheets, highest index first."""
     metadata = spreadsheet.fetch_sheet_metadata()
@@ -198,8 +239,13 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
     """Apply the full palette to both visible tabs."""
     listings_id, programs_id = listings_ws.id, programs_ws.id
 
-    requests = _clear_conditional_rules(spreadsheet, {listings_id, programs_id})
+    sheet_ids = {listings_id, programs_id}
 
+    # Teardown first: stale tables and rules must go before the new ones land.
+    requests = _delete_table_requests(spreadsheet, sheet_ids)
+    requests += _clear_conditional_rules(spreadsheet, sheet_ids)
+
+    # Freeze + tab colors. The tables own the header fill from here.
     requests += _header_requests(
         listings_ws, config.LISTINGS_HEADERS, PALETTE["deep_berry"], PALETTE["deep_berry"]
     )
@@ -211,6 +257,26 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
     requests += _border_requests(listings_id, num_listings, len(config.LISTINGS_HEADERS))
     requests += _border_requests(programs_id, num_programs, len(config.PROGRAMS_HEADERS))
 
+    requests.append(
+        _table_request(
+            listings_id,
+            "InternshipListings",
+            config.LISTINGS_HEADERS,
+            num_listings,
+            PALETTE["deep_berry"],
+            checkbox_cols={COL_APPLIED, COL_REMOVE},
+        )
+    )
+    requests.append(
+        _table_request(
+            programs_id,
+            "ProgramsAndFellowships",
+            config.PROGRAMS_HEADERS,
+            num_programs,
+            PALETTE["light_warm_grey"],
+        )
+    )
+
     requests += [
         {"addConditionalFormatRule": {"rule": rule, "index": i}}
         for i, rule in enumerate(
@@ -218,7 +284,6 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
         )
     ]
 
-    requests += _checkbox_requests(listings_id, num_listings)
     requests += _width_requests(listings_id)
 
     if not requests:
