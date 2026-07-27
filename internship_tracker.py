@@ -11,6 +11,7 @@ import sys
 import requests
 
 import config
+import linkcheck
 import parser as md_parser
 import sheets
 import styling
@@ -30,14 +31,25 @@ def parse_args(argv=None):
         action="store_true",
         help="skip the formatting pass (faster; useful when iterating)",
     )
+    ap.add_argument(
+        "--skip-links",
+        action="store_true",
+        help="skip checking whether application links are still live",
+    )
     ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return ap.parse_args(argv)
 
 
-def report(new_listings, dropped, total, programs):
+def report(new_listings, dropped, total, programs, rows=()):
     log.info("-" * 60)
     log.info("%d listing(s) on the sheet after this run", total)
     log.info("%d program(s)", len(programs))
+
+    stale = [r for r in rows if r.get("Link Status") in ("DEAD", "CLOSED")]
+    if stale:
+        log.info("%d listing(s) no longer applicable (sunk to bottom, not deleted):", len(stale))
+        for row in stale:
+            log.info("  ! [%s] %s — %s", row["Link Status"], row["Company"], row["Role"])
 
     if new_listings:
         log.info("%d NEW listing(s):", len(new_listings))
@@ -109,7 +121,14 @@ def main(argv=None):
     removed_keys = sheets.read_removed_keys(removed_ws)
     log.info("Sheet currently holds %d row(s), %d tombstoned", len(state), len(removed_keys))
 
-    rows, new_listings, dropped = sheets.build_rows(listings, state, removed_keys)
+    # 3b. Check whether each application link is still live and still open.
+    link_status = {}
+    if not args.skip_links:
+        link_status = linkcheck.check_all([l.apply_url for l in listings])
+
+    rows, new_listings, dropped = sheets.build_rows(
+        listings, state, removed_keys, link_status=link_status
+    )
 
     # 4. Programs: preserve the date each was first seen.
     today_str = sheets.today().isoformat()
@@ -118,7 +137,7 @@ def main(argv=None):
 
     if args.dry_run:
         log.info("DRY RUN — nothing will be written.")
-        report(new_listings, dropped, len(rows), programs)
+        report(new_listings, dropped, len(rows), programs, rows)
         return 0
 
     # 5. Write.
@@ -132,7 +151,7 @@ def main(argv=None):
         except Exception as exc:  # noqa: BLE001 - styling must never lose data
             log.warning("Formatting pass failed (data is written and safe): %s", exc)
 
-    report(new_listings, dropped, len(rows), programs)
+    report(new_listings, dropped, len(rows), programs, rows)
     return 0
 
 

@@ -29,6 +29,7 @@ LISTINGS_HEADERS = [
     "Date Added",
     "Remote?",
     "Status",
+    "Link Status",
     "Applied?",
     "Remove?",
 ]

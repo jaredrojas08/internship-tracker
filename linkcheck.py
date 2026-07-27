@@ -93,7 +93,9 @@ def classify(url, session=None):
     except requests.Timeout:
         return UNKNOWN, "timeout"
     except requests.RequestException as exc:
-        return DEAD, type(exc).__name__
+        # A transient network failure is not evidence the posting is gone.
+        # Only an explicit 404/410 earns DEAD.
+        return UNKNOWN, type(exc).__name__
 
     code = response.status_code
     if code in (404, 410):

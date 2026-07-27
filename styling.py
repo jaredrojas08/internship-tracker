@@ -17,8 +17,9 @@ log = logging.getLogger(__name__)
 COL_APPLY_LINK = 3
 COL_REMOTE = 5
 COL_STATUS = 6
-COL_APPLIED = 7
-COL_REMOVE = 8
+COL_LINK_STATUS = 7
+COL_APPLIED = 8
+COL_REMOVE = 9
 
 
 def _grid(sheet_id, start_row=0, end_row=None, start_col=0, end_col=None):
@@ -95,6 +96,8 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
     status_range = _grid(sheet_id, 1, num_rows + 1, COL_STATUS, COL_STATUS + 1)
     remote_range = _grid(sheet_id, 1, num_rows + 1, COL_REMOTE, COL_REMOTE + 1)
     applied_range = _grid(sheet_id, 1, num_rows + 1, COL_APPLIED, COL_APPLIED + 1)
+    link_range = _grid(sheet_id, 1, num_rows + 1, COL_LINK_STATUS, COL_LINK_STATUS + 1)
+    whole_row = _grid(sheet_id, 1, num_rows + 1, 0, num_cols)
 
     def text_eq(ranges, value, bg, fg=None, bold=False):
         fmt: dict[str, Any] = {"backgroundColor": hex_to_rgb(bg)}
@@ -125,10 +128,19 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
 
     del data  # banding is handled natively by the table's rowsProperties
     return [
+        # Dead/closed rows grey out entirely so they read as inactive at a glance.
+        formula(
+            [whole_row],
+            '=OR($H2="DEAD",$H2="CLOSED")',
+            PALETTE["light_warm_grey"],
+            PALETTE["warm_brown"],
+        ),
+        text_eq(link_range, "DEAD", PALETTE["muted_taupe"], PALETTE["white"], True),
+        text_eq(link_range, "CLOSED", PALETTE["muted_taupe"], PALETTE["white"], True),
         text_eq(status_range, "NEW", PALETTE["dusty_rose"], bold=True),
         text_eq(status_range, "SEEN", PALETTE["muted_taupe"]),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
-        formula([applied_range], "=$H2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
+        formula([applied_range], "=$I2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
     ]
 
 
@@ -141,7 +153,7 @@ def _width_requests(sheet_id):
                     "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 0,
-                    "endIndex": 9,
+                    "endIndex": len(config.LISTINGS_HEADERS),
                 }
             }
         },
@@ -164,64 +176,73 @@ def _color_style(hex_color):
     return {"rgbColor": hex_to_rgb(hex_color)}
 
 
-def _table_request(sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
-    """Build a native Sheets Table over the header + data range.
+def _table_body(sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
+    """The Table payload shared by the add and update paths.
 
     The table supplies its own header and alternating-band colors, so the
     Strawberry Kiss palette is applied through rowsProperties rather than
     through conditional formatting. Columns listed in checkbox_cols become
     real BOOLEAN columns, which is what renders them as toggles.
     """
-    columns = []
-    for index, title in enumerate(headers):
-        column = {
+    columns = [
+        {
             "columnIndex": index,
             "columnName": title,
             "columnType": "BOOLEAN" if index in checkbox_cols else "TEXT",
         }
-        columns.append(column)
-
+        for index, title in enumerate(headers)
+    ]
     return {
-        "addTable": {
-            "table": {
-                "name": name,
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 0,
-                    "endRowIndex": max(num_rows + 1, 2),
-                    "startColumnIndex": 0,
-                    "endColumnIndex": len(headers),
-                },
-                "rowsProperties": {
-                    "headerColorStyle": _color_style(header_bg),
-                    "firstBandColorStyle": _color_style(PALETTE["blush"]),
-                    "secondBandColorStyle": _color_style(PALETTE["soft_tan"]),
-                },
-                "columnProperties": columns,
-            }
+        "name": name,
+        "range": {
+            "sheetId": sheet_id,
+            "startRowIndex": 0,
+            "endRowIndex": max(num_rows + 1, 2),
+            "startColumnIndex": 0,
+            "endColumnIndex": len(headers),
+        },
+        "rowsProperties": {
+            "headerColorStyle": _color_style(header_bg),
+            "firstBandColorStyle": _color_style(PALETTE["blush"]),
+            "secondBandColorStyle": _color_style(PALETTE["soft_tan"]),
+        },
+        "columnProperties": columns,
+    }
+
+
+def _existing_table_id(metadata, sheet_id):
+    for sheet in metadata.get("sheets", []):
+        if sheet["properties"]["sheetId"] != sheet_id:
+            continue
+        tables = sheet.get("tables", [])
+        if tables:
+            return tables[0]["tableId"]
+    return None
+
+
+def _table_request(metadata, sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
+    """Create the table, or resize the existing one in place.
+
+    Critically this never issues deleteTable: that request removes the table's
+    data rows along with the table, which silently empties the sheet. Resizing
+    via updateTable is the only safe way to track a changing row count.
+    """
+    body = _table_body(sheet_id, name, headers, num_rows, header_bg, checkbox_cols)
+    table_id = _existing_table_id(metadata, sheet_id)
+    if table_id is None:
+        return {"addTable": {"table": body}}
+    body["tableId"] = table_id
+    return {
+        "updateTable": {
+            "table": body,
+            "fields": "range,rowsProperties,columnProperties",
         }
     }
 
 
-def _delete_table_requests(spreadsheet, sheet_ids):
-    """Drop existing tables so the range can be rebuilt at the new row count.
-
-    A table's range does not grow automatically when rows are appended below
-    it, so each run tears down and recreates rather than trying to resize.
-    """
-    metadata = spreadsheet.fetch_sheet_metadata()
-    requests = []
-    for sheet in metadata.get("sheets", []):
-        if sheet["properties"]["sheetId"] not in sheet_ids:
-            continue
-        for table in sheet.get("tables", []):
-            requests.append({"deleteTable": {"tableId": table["tableId"]}})
-    return requests
-
-
-def _clear_conditional_rules(spreadsheet, sheet_ids):
+def _clear_conditional_rules(spreadsheet, sheet_ids, metadata=None):
     """Delete every existing rule on the given sheets, highest index first."""
-    metadata = spreadsheet.fetch_sheet_metadata()
+    metadata = metadata or spreadsheet.fetch_sheet_metadata()
     requests = []
     for sheet in metadata.get("sheets", []):
         sheet_id = sheet["properties"]["sheetId"]
@@ -240,10 +261,11 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
     listings_id, programs_id = listings_ws.id, programs_ws.id
 
     sheet_ids = {listings_id, programs_id}
+    metadata = spreadsheet.fetch_sheet_metadata()
 
-    # Teardown first: stale tables and rules must go before the new ones land.
-    requests = _delete_table_requests(spreadsheet, sheet_ids)
-    requests += _clear_conditional_rules(spreadsheet, sheet_ids)
+    # Conditional rules are cheap to recreate, so they are cleared and re-added.
+    # Tables are not: see _table_request.
+    requests = _clear_conditional_rules(spreadsheet, sheet_ids, metadata)
 
     # Freeze + tab colors. The tables own the header fill from here.
     requests += _header_requests(
@@ -259,6 +281,7 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
 
     requests.append(
         _table_request(
+            metadata,
             listings_id,
             "InternshipListings",
             config.LISTINGS_HEADERS,
@@ -269,6 +292,7 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
     )
     requests.append(
         _table_request(
+            metadata,
             programs_id,
             "ProgramsAndFellowships",
             config.PROGRAMS_HEADERS,

@@ -146,7 +146,7 @@ def status_for(date_added, as_of=None):
     return "NEW" if (as_of - added).days < config.NEW_STATUS_DAYS else "SEEN"
 
 
-def build_rows(listings, state, removed_keys, as_of=None):
+def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
     """Merge parsed listings with sheet state. Returns (rows, newly_added, dropped).
 
     Precedence: the user's Remove? wins over everything. Their Applied? value is
@@ -155,6 +155,7 @@ def build_rows(listings, state, removed_keys, as_of=None):
     """
     as_of = as_of or today()
     today_str = as_of.isoformat()
+    link_status = link_status or {}
 
     rows, newly_added, dropped = [], [], []
 
@@ -187,6 +188,7 @@ def build_rows(listings, state, removed_keys, as_of=None):
                 "Date Added": date_added,
                 "Remote?": "YES" if listing.is_remote else "NO",
                 "Status": status_for(date_added, as_of),
+                "Link Status": link_status.get(listing.apply_url, ("", ""))[0],
                 "Applied?": applied,
                 "Remove?": False,
             }
@@ -197,17 +199,20 @@ def build_rows(listings, state, removed_keys, as_of=None):
 
 
 def _sort_key(row):
-    """NEW first, then remote, then newest, then company.
+    """Applicable first, then NEW, then remote, then newest, then company.
 
+    Dead and closed listings sink to the bottom rather than being deleted — the
+    detection is good but not perfect, so they stay visible and reversible.
     Fresh listings surface for three days regardless of location; after that the
     sheet settles into remote-at-top. Tuples sort ascending, so each component is
     expressed as "0 means first".
     """
+    unapplicable = 1 if row.get("Link Status") in ("DEAD", "CLOSED") else 0
     is_new = 0 if row["Status"] == "NEW" else 1
     is_remote = 0 if row["Remote?"] == "YES" else 1
     added = _parse_date(row["Date Added"])
     recency = -added.toordinal() if added else 0
-    return (is_new, is_remote, recency, row["Company"].lower())
+    return (unapplicable, is_new, is_remote, recency, row["Company"].lower())
 
 
 def rows_to_values(rows):
@@ -221,6 +226,7 @@ def rows_to_values(rows):
             row["Date Added"],
             row["Remote?"],
             row["Status"],
+            row["Link Status"],
             bool(row["Applied?"]),
             bool(row["Remove?"]),
         ]
