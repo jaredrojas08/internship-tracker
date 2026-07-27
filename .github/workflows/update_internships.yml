@@ -6,6 +6,11 @@ on:
     # GitHub's scheduler is best-effort and can lag under load.
     - cron: '0 18 * * *'
   workflow_dispatch:
+    inputs:
+      test_notify:
+        description: 'Send a test digest and exit (does not touch the sheet)'
+        type: boolean
+        default: false
 
 # The job only reads the repo; all state lives in the Google Sheet.
 permissions:
@@ -41,4 +46,9 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           NOTIFY_EMAIL_TO: ${{ secrets.NOTIFY_EMAIL_TO }}
-        run: python internship_tracker.py
+        run: |
+          if [ "${{ inputs.test_notify }}" = "true" ]; then
+            python internship_tracker.py --test-notify
+          else
+            python internship_tracker.py
+          fi
