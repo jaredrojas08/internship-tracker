@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import smtplib
+import time
 import urllib.error
 import urllib.request
 from email.message import EmailMessage
@@ -25,7 +26,12 @@ import sheets
 log = logging.getLogger(__name__)
 
 DISCORD_LIMIT = 1900  # leave headroom under Discord's 2000-character cap
-MAX_ITEMS = 10  # per section, so one busy day can't produce a wall of text
+# A long digest is split across several Discord messages rather than cut off:
+# a listing that is only visible on the sheet may as well not have been sent.
+# The cap exists so a first run of 200+ listings can't post indefinitely — past
+# this point the sheet really is the better tool.
+MAX_DISCORD_MESSAGES = 6
+DISCORD_SEND_PAUSE = 0.5  # seconds between messages; webhooks allow ~5/sec
 
 # Discord rejects requests carrying urllib's default User-Agent with a bare
 # 403, so identifying the client is required, not cosmetic.
@@ -187,11 +193,10 @@ def _headline(new_count, game_count, follow_count, soon_count):
 
 
 def _section(title, items):
-    shown = items[:MAX_ITEMS]
-    text = f"**{title}**\n" + "\n".join(f"• {item}" for item in shown)
-    if len(items) > MAX_ITEMS:
-        text += f"\n• …and {len(items) - MAX_ITEMS} more"
-    return text
+    # Every item is listed. Length is handled once, at delivery, by splitting
+    # across messages — truncating here would hide listings from email too,
+    # which has no length limit at all.
+    return f"**{title}**\n" + "\n".join(f"• {item}" for item in items)
 
 
 def _fmt_listing(listing):
@@ -238,10 +243,54 @@ def send(subject, body):
     return delivered
 
 
+def _chunk(text, limit=DISCORD_LIMIT):
+    """Split text into <=limit pieces, breaking on line boundaries.
+
+    Lines are kept whole so a listing is never cut in half across two messages.
+    A single line longer than the limit (unusual — a very long role title) is
+    hard-split, since there is nowhere else to break it.
+    """
+    chunks, current = [], ""
+    for line in text.split("\n"):
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def _send_discord(subject, body):
-    message = f"**{subject}**\n\n{body}"
-    if len(message) > DISCORD_LIMIT:
-        message = message[:DISCORD_LIMIT] + "\n… (truncated, see the sheet)"
+    chunks = _chunk(f"**{subject}**\n\n{body}")
+    dropped = len(chunks) - MAX_DISCORD_MESSAGES
+    if dropped > 0:
+        chunks = chunks[:MAX_DISCORD_MESSAGES]
+        chunks[-1] += "\n… (too long for Discord — the rest is on the sheet)"
+
+    total = len(chunks)
+    for index, chunk in enumerate(chunks, start=1):
+        if index > 1:
+            # Continuation messages arrive without the header, so they need to
+            # identify themselves as part of the same digest.
+            chunk = f"_(continued {index}/{total})_\n{chunk}"
+            time.sleep(DISCORD_SEND_PAUSE)
+        if not _post_discord(chunk):
+            # Stop rather than keep posting: a failure mid-digest already means
+            # the message is incomplete, and the rest would read as noise.
+            return index > 1
+    return True
+
+
+def _post_discord(message, retry=True):
     payload = json.dumps({"content": message}).encode()
     request = urllib.request.Request(
         os.environ["DISCORD_WEBHOOK_URL"],
@@ -257,6 +306,14 @@ def _send_discord(subject, body):
             detail = exc.read().decode()[:200]
         except Exception:  # noqa: BLE001 - the error body is best-effort
             pass
+        # Only reachable now that a digest can span several messages. Waiting
+        # out the window is the whole fix: the alternative is a digest that
+        # stops halfway through the listings.
+        if exc.code == 429 and retry:
+            wait = _retry_after(exc)
+            log.info("Discord rate-limited the digest; retrying in %.1fs", wait)
+            time.sleep(wait)
+            return _post_discord(message, retry=False)
         if exc.code in (401, 403, 404):
             log.warning(
                 "Discord rejected the webhook (HTTP %s). The URL is probably wrong, "
@@ -270,6 +327,15 @@ def _send_discord(subject, body):
     except (urllib.error.URLError, OSError) as exc:
         log.warning("Discord delivery failed: %s", exc)
         return False
+
+
+def _retry_after(exc, default=2.0, ceiling=30.0):
+    """Seconds to wait after a 429, clamped so a bad header can't stall the run."""
+    try:
+        wait = float(exc.headers.get("Retry-After", default))
+    except (TypeError, ValueError, AttributeError):
+        wait = default
+    return max(0.0, min(wait, ceiling))
 
 
 def _send_email(subject, body):
