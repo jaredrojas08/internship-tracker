@@ -11,6 +11,7 @@ import datetime as dt
 import logging
 
 import gspread
+from gspread.http_client import BackOffHTTPClient
 from google.oauth2.service_account import Credentials
 
 import config
@@ -41,7 +42,8 @@ def connect():
     creds = Credentials.from_service_account_info(
         config.load_credentials_info(), scopes=SCOPES
     )
-    client = gspread.authorize(creds)
+    # Google hands out transient 503s; retry them instead of losing the whole run.
+    client = gspread.authorize(creds, http_client=BackOffHTTPClient)
     return client.open_by_key(config.get_sheet_id())
 
 
