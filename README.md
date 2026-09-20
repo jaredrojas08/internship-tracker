@@ -8,7 +8,7 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 |---|---|---|
 | [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also supplies the Programs tab |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
-| Game studio ATS boards (`studios.py`) | 0 out of season | 14 boards over Greenhouse / Ashby / Lever |
+| Game studio ATS boards (`studios.py`) | ~20 in season | 26 boards over Greenhouse / Ashby / Lever |
 
 Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.
 
@@ -174,11 +174,11 @@ Verified live boards:
 
 | ATS | Boards |
 |---|---|
-| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` |
-| Ashby | `supercell` `thatgamecompany` |
-| Lever | `skydance` `jamcity` |
+| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` `2k` `taketwo` `nintendo` `insomniac` `gearbox` `crystaldynamics` `azragames` |
+| Ashby | `supercell` `thatgamecompany` `hoyoverse` `arenanet` `seconddinner` `believer` |
+| Lever | `skydance` `jamcity` `theorycraftgames` |
 
-Not found on these three (different ATS, needs identifying): Sucker Punch, Santa Monica Studio, 343, Obsidian, Larian, CD Projekt Red, Gearbox, Zynga, King, Niantic, Behaviour, Unity, Valve, Respawn, Blizzard, Activision, EA.
+Not on these three ATSes (probed ~300 slugs, Sept 2026): EA, Respawn, Activision, Blizzard, Xbox studios and Zynga are on Workday; Ubisoft is on SmartRecruiters; Valve, Sucker Punch, Santa Monica Studio, Obsidian, CD Projekt Red, Niantic and Unity weren't found under any obvious slug. Live boards skipped on purpose: Larian, Kabam, NetEase, Avalanche, Crytek, Housemarque, Haven (no US roles); Twitch, VRChat (not studios); Hasbro (mostly non-game roles, and the source tags everything as game work). Beware name collisions: `remedy`, `bethesda`, `raven`, `moonshot`, `take2`, `lightspeed`, `paradox`, `kepler`, `lockwood` resolve to unrelated companies.
 
 Three rules specific to this source:
 
