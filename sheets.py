@@ -15,6 +15,7 @@ from gspread.http_client import BackOffHTTPClient
 from google.oauth2.service_account import Credentials
 
 import config
+import styling
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +101,10 @@ def _migrate_columns(worksheet, old_headers, new_headers, data_rows):
                 for name in new_headers
             ]
         )
+
+    # The table's column types have to move before the data does, or a BOOLEAN
+    # column left at an old checkbox position coerces the text that lands there.
+    styling.retype_table(worksheet, new_headers, len(migrated))
 
     end_col = _column_letter(len(new_headers))
     worksheet.update(values=[new_headers], range_name="A1")
@@ -222,15 +227,6 @@ def read_removed_keys(worksheet):
 # --- Merge and sort --------------------------------------------------------
 
 
-def status_for(date_added, as_of=None):
-    """NEW for the first few days after the script first saw the listing."""
-    as_of = as_of or today()
-    added = _parse_date(date_added)
-    if added is None:
-        return "SEEN"
-    return "NEW" if (as_of - added).days < config.NEW_STATUS_DAYS else "SEEN"
-
-
 def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
     """Merge parsed listings with sheet state. Returns (rows, newly_added, dropped).
 
@@ -295,7 +291,6 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Date Added": date_added,
                 "Remote?": "YES" if listing.is_remote else "NO",
                 "Game?": "YES" if listing.is_game else "NO",
-                "Status": status_for(date_added, as_of),
                 "Link Status": status,
                 "Last Checked": last_checked,
                 "Source": listing.source,
@@ -310,13 +305,11 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
 
 
 def _sort_key(row):
-    """Applicable first, then NEW, then game, then remote, then newest, company.
+    """Applicable first, then game, then remote, then newest, then company.
 
     Dead and closed listings sink to the bottom rather than being deleted — the
     detection is good but not perfect, so they stay visible and reversible.
-    Fresh listings surface for three days regardless of location; after that the
-    sheet settles into remote-at-top. Tuples sort ascending, so each component is
-    expressed as "0 means first".
+    Tuples sort ascending, so each component is expressed as "0 means first".
     """
     unapplicable = 1 if row.get("Link Status") in ("DEAD", "CLOSED") else 0
     # A deadline in the past also sinks the row, including one typed by hand
@@ -324,12 +317,11 @@ def _sort_key(row):
     due = _parse_date(row.get("Deadline"))
     if due and due < (row.get("_as_of") or today()):
         unapplicable = 1
-    is_new = 0 if row["Status"] == "NEW" else 1
     is_game = 0 if row.get("Game?") == "YES" else 1
     is_remote = 0 if row["Remote?"] == "YES" else 1
     added = _parse_date(row["Date Added"])
     recency = -added.toordinal() if added else 0
-    return (unapplicable, is_new, is_game, is_remote, recency, row["Company"].lower())
+    return (unapplicable, is_game, is_remote, recency, row["Company"].lower())
 
 
 def rows_to_values(rows):
@@ -345,7 +337,6 @@ def rows_to_values(rows):
             row["Date Added"],
             row["Remote?"],
             row["Game?"],
-            row["Status"],
             row["Link Status"],
             row["Last Checked"],
             row["Source"],

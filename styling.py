@@ -13,24 +13,27 @@ from config import PALETTE, hex_to_rgb
 
 log = logging.getLogger(__name__)
 
-# 0-based column positions in the listings tab.
-COL_APPLY_LINK = 3
-COL_SALARY = 4
-COL_DEADLINE = 5
-COL_REMOTE = 7
-COL_GAME = 8
-COL_STATUS = 9
-COL_LINK_STATUS = 10
-COL_LAST_CHECKED = 11
-COL_SOURCE = 12
-COL_APPLIED = 13
-COL_APPLIED_DATE = 14
-COL_REMOVE = 15
+# 0-based column positions, derived from the header lists so that adding or
+# removing a column can't leave a rule or a checkbox type pointing at the
+# wrong place.
+_LISTING_COL = config.LISTINGS_HEADERS.index
+COL_DEADLINE = _LISTING_COL("Deadline")
+COL_REMOTE = _LISTING_COL("Remote?")
+COL_GAME = _LISTING_COL("Game?")
+COL_LINK_STATUS = _LISTING_COL("Link Status")
+COL_APPLIED = _LISTING_COL("Applied?")
+COL_APPLIED_DATE = _LISTING_COL("Applied Date")
 
 # Programs tab.
-COL_PROG_DEADLINE = 4
-COL_PROG_APPLIED = 6
-COL_PROG_REMOVE = 7
+COL_PROG_DEADLINE = config.PROGRAMS_HEADERS.index("Deadline")
+COL_PROG_APPLIED = config.PROGRAMS_HEADERS.index("Applied?")
+
+# The columns rendered as checkboxes, on both tabs.
+CHECKBOX_HEADERS = {"Applied?", "Remove?"}
+
+
+def checkbox_columns(headers):
+    return {index for index, title in enumerate(headers) if title in CHECKBOX_HEADERS}
 
 
 def _a1(index):
@@ -114,7 +117,6 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         return []
 
     data = _grid(sheet_id, 1, num_rows + 1, 0, num_cols)
-    status_range = _grid(sheet_id, 1, num_rows + 1, COL_STATUS, COL_STATUS + 1)
     remote_range = _grid(sheet_id, 1, num_rows + 1, COL_REMOTE, COL_REMOTE + 1)
     applied_range = _grid(sheet_id, 1, num_rows + 1, COL_APPLIED, COL_APPLIED + 1)
     link_range = _grid(sheet_id, 1, num_rows + 1, COL_LINK_STATUS, COL_LINK_STATUS + 1)
@@ -171,8 +173,6 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
             PALETTE["dusty_rose"],
             bold=True,
         ),
-        text_eq(status_range, "NEW", PALETTE["dusty_rose"], bold=True),
-        text_eq(status_range, "SEEN", PALETTE["muted_taupe"]),
         # Game roles are the priority tier, so they get the strongest fill.
         text_eq(game_range, "YES", PALETTE["deep_berry"], PALETTE["white"], True),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
@@ -280,14 +280,6 @@ def _table_body(sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
     through conditional formatting. Columns listed in checkbox_cols become
     real BOOLEAN columns, which is what renders them as toggles.
     """
-    columns = [
-        {
-            "columnIndex": index,
-            "columnName": title,
-            "columnType": "BOOLEAN" if index in checkbox_cols else "TEXT",
-        }
-        for index, title in enumerate(headers)
-    ]
     return {
         "name": name,
         "range": {
@@ -302,8 +294,46 @@ def _table_body(sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
             "firstBandColorStyle": _color_style(PALETTE["blush"]),
             "secondBandColorStyle": _color_style(PALETTE["soft_tan"]),
         },
-        "columnProperties": columns,
+        "columnProperties": _column_properties(headers, checkbox_cols),
     }
+
+
+def _column_properties(headers, checkbox_cols):
+    return [
+        {
+            "columnIndex": index,
+            "columnName": title,
+            "columnType": "BOOLEAN" if index in checkbox_cols else "TEXT",
+        }
+        for index, title in enumerate(headers)
+    ]
+
+
+def retype_table(worksheet, headers, num_rows):
+    """Move the table's column types onto a new header layout, before any data is.
+
+    A column left BOOLEAN at an old checkbox position coerces whatever text
+    lands there to TRUE/FALSE, so this must run before a migration rewrites
+    the rows. No table yet means nothing to retype.
+    """
+    spreadsheet = worksheet.spreadsheet
+    table_id = _existing_table_id(spreadsheet.fetch_sheet_metadata(), worksheet.id)
+    if table_id is None:
+        return
+    table = {
+        "tableId": table_id,
+        "range": {
+            "sheetId": worksheet.id,
+            "startRowIndex": 0,
+            "endRowIndex": max(num_rows + 1, 2),
+            "startColumnIndex": 0,
+            "endColumnIndex": len(headers),
+        },
+        "columnProperties": _column_properties(headers, checkbox_columns(headers)),
+    }
+    spreadsheet.batch_update(
+        {"requests": [{"updateTable": {"table": table, "fields": "range,columnProperties"}}]}
+    )
 
 
 def _existing_table_id(metadata, sheet_id):
@@ -369,7 +399,7 @@ def sync_table_schema(spreadsheet, listings_ws, programs_ws, num_listings, num_p
             config.LISTINGS_HEADERS,
             num_listings,
             PALETTE["deep_berry"],
-            checkbox_cols={COL_APPLIED, COL_REMOVE},
+            checkbox_cols=checkbox_columns(config.LISTINGS_HEADERS),
         ),
         _table_request(
             metadata,
@@ -378,7 +408,7 @@ def sync_table_schema(spreadsheet, listings_ws, programs_ws, num_listings, num_p
             config.PROGRAMS_HEADERS,
             num_programs,
             PALETTE["light_warm_grey"],
-            checkbox_cols={COL_PROG_APPLIED, COL_PROG_REMOVE},
+            checkbox_cols=checkbox_columns(config.PROGRAMS_HEADERS),
         ),
     ]
     spreadsheet.batch_update({"requests": requests})
@@ -415,7 +445,7 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
             config.LISTINGS_HEADERS,
             num_listings,
             PALETTE["deep_berry"],
-            checkbox_cols={COL_APPLIED, COL_REMOVE},
+            checkbox_cols=checkbox_columns(config.LISTINGS_HEADERS),
         )
     )
     requests.append(
@@ -426,7 +456,7 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
             config.PROGRAMS_HEADERS,
             num_programs,
             PALETTE["light_warm_grey"],
-            checkbox_cols={COL_PROG_APPLIED, COL_PROG_REMOVE},
+            checkbox_cols=checkbox_columns(config.PROGRAMS_HEADERS),
         )
     )
 

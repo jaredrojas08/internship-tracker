@@ -32,7 +32,6 @@ LISTINGS_HEADERS = [
     "Date Added",
     "Remote?",
     "Game?",
-    "Status",
     "Link Status",
     "Last Checked",
     "Source",
@@ -71,7 +70,6 @@ NOTIFY_ON_QUIET_DAYS = os.environ.get("NOTIFY_ON_QUIET_DAYS", "true").strip().lo
     "no",
 )
 
-NEW_STATUS_DAYS = 3  # a listing shows as NEW for this many days
 
 # Application links are re-checked on this cadence rather than every run.
 # A listing the script has never checked is always checked immediately.

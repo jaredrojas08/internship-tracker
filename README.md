@@ -64,13 +64,12 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | G | Date Added — when the script first saw it |
 | H | Remote? |
 | I | Game? — game development role |
-| J | Status — `NEW` for 3 days, then `SEEN` |
-| K | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
-| L | Last Checked — when the link was last verified |
-| M | Source — which list it came from |
-| N | **Applied?** — yours to toggle |
-| O | Applied Date — auto-stamped when you tick Applied? |
-| P | **Remove?** — check to delete the row |
+| J | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
+| K | Last Checked — when the link was last verified |
+| L | Source — which list it came from |
+| M | **Applied?** — yours to toggle |
+| N | Applied Date — auto-stamped when you tick Applied? |
+| O | **Remove?** — check to delete the row |
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
 
@@ -195,9 +194,7 @@ Handshake is not an option: it's behind Cornell SSO, has no public API, and auto
 
 ### Sort order
 
-Applicable first, then `NEW`, then **game**, then remote, then newest, then alphabetical by company.
-
-New listings surface at the top for three days regardless of location; after that the sheet settles into remote-at-top. This is why row order changes between runs — the sheet is rebuilt each time, not appended to.
+Applicable first, then **game**, then remote, then newest, then alphabetical by company. Row order changes between runs because the sheet is rebuilt each time, not appended to. What arrived today is in the Discord digest; the sheet itself carries no new/seen marker.
 
 ## Local setup
 
