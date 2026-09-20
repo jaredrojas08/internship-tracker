@@ -242,6 +242,15 @@ _UNDERGRAD_OK = re.compile(
 # Full-time offers for a company's own returning interns. Not open to anyone else.
 _INTERN_CONVERSION = re.compile(r"\bintern conversions?\b", re.IGNORECASE)
 
+# Design tracks Jared isn't on. Level and game design stay: those are the minor.
+# The qualifier must be followed by "design", so "Software Engineer: UI/UX" and
+# "UX/UI Front End Engineer" are still engineering roles.
+_DESIGN_TRACK = re.compile(
+    r"\b(product|ux|ui/ux|ux/ui|ui|user experience|experience|visual|graphic|interaction)"
+    r" design(er|ers)?\b",
+    re.IGNORECASE,
+)
+
 
 def requires_advanced_degree(role_title):
     """True if the role is gated on a graduate degree Jared won't have."""
@@ -251,10 +260,12 @@ def requires_advanced_degree(role_title):
 
 
 def is_eligible(role_title):
-    """False for roles Jared can't apply to regardless of how relevant they look."""
+    """False for roles that aren't for Jared however relevant the keywords look."""
     if requires_advanced_degree(role_title):
         return False
-    return not _INTERN_CONVERSION.search(role_title)
+    if _INTERN_CONVERSION.search(role_title):
+        return False
+    return not _DESIGN_TRACK.search(role_title)
 
 
 def matches_role_filter(role_title):

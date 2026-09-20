@@ -30,6 +30,16 @@ COL_PROG_APPLIED = config.PROGRAMS_HEADERS.index("Applied?")
 
 # The columns rendered as checkboxes, on both tabs.
 CHECKBOX_HEADERS = {"Applied?", "Remove?"}
+# Columns typed as real dates so the sheet sorts and filters them as dates.
+DATE_HEADERS = {"Applied Date"}
+
+
+def _column_type(title, index, checkbox_cols):
+    if index in checkbox_cols:
+        return "BOOLEAN"
+    if title in DATE_HEADERS:
+        return "DATE"
+    return "TEXT"
 
 
 def checkbox_columns(headers):
@@ -240,34 +250,6 @@ def _program_rules(sheet_id, num_rows):
     ]
 
 
-def _width_requests(sheet_id):
-    """Auto-fit everything, then cap Role and Location so they can't sprawl."""
-    return [
-        {
-            "autoResizeDimensions": {
-                "dimensions": {
-                    "sheetId": sheet_id,
-                    "dimension": "COLUMNS",
-                    "startIndex": 0,
-                    "endIndex": len(config.LISTINGS_HEADERS),
-                }
-            }
-        },
-        {
-            "updateDimensionProperties": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "dimension": "COLUMNS",
-                    "startIndex": 1,
-                    "endIndex": 3,
-                },
-                "properties": {"pixelSize": 340},
-                "fields": "pixelSize",
-            }
-        },
-    ]
-
-
 def _color_style(hex_color):
     return {"rgbColor": hex_to_rgb(hex_color)}
 
@@ -303,7 +285,7 @@ def _column_properties(headers, checkbox_cols):
         {
             "columnIndex": index,
             "columnName": title,
-            "columnType": "BOOLEAN" if index in checkbox_cols else "TEXT",
+            "columnType": _column_type(title, index, checkbox_cols),
         }
         for index, title in enumerate(headers)
     ]
@@ -472,7 +454,7 @@ def apply_all(spreadsheet, listings_ws, programs_ws, num_listings, num_programs)
         for i, rule in enumerate(_program_rules(programs_id, num_programs))
     ]
 
-    requests += _width_requests(listings_id)
+    # Column widths are never touched: Jared sizes them by hand.
 
     if not requests:
         return
