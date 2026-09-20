@@ -311,11 +311,11 @@ def retype_table(worksheet, headers, num_rows):
     the rows. No table yet means nothing to retype.
     """
     spreadsheet = worksheet.spreadsheet
-    table_id = _existing_table_id(spreadsheet.fetch_sheet_metadata(), worksheet.id)
-    if table_id is None:
+    existing = _existing_table(spreadsheet.fetch_sheet_metadata(), worksheet.id)
+    if existing is None:
         return
     table = {
-        "tableId": table_id,
+        "tableId": existing["tableId"],
         "range": {
             "sheetId": worksheet.id,
             "startRowIndex": 0,
@@ -330,13 +330,13 @@ def retype_table(worksheet, headers, num_rows):
     )
 
 
-def _existing_table_id(metadata, sheet_id):
+def _existing_table(metadata, sheet_id):
     for sheet in metadata.get("sheets", []):
         if sheet["properties"]["sheetId"] != sheet_id:
             continue
         tables = sheet.get("tables", [])
         if tables:
-            return tables[0]["tableId"]
+            return tables[0]
     return None
 
 
@@ -348,16 +348,19 @@ def _table_request(metadata, sheet_id, name, headers, num_rows, header_bg, check
     via updateTable is the only safe way to track a changing row count.
     """
     body = _table_body(sheet_id, name, headers, num_rows, header_bg, checkbox_cols)
-    table_id = _existing_table_id(metadata, sheet_id)
-    if table_id is None:
+    existing = _existing_table(metadata, sheet_id)
+    if existing is None:
         return {"addTable": {"table": body}}
-    body["tableId"] = table_id
-    return {
-        "updateTable": {
-            "table": body,
-            "fields": "range,rowsProperties,columnProperties",
-        }
-    }
+    body["tableId"] = existing["tableId"]
+    # Column properties are only rewritten when they differ. Dropdown chip
+    # colors set by hand live outside the API, and rewriting the column
+    # unchanged would still wipe them.
+    fields = "range,rowsProperties"
+    # The API leaves out columnIndex when it is 0.
+    live = [{"columnIndex": 0, **column} for column in existing.get("columnProperties", [])]
+    if live != body["columnProperties"]:
+        fields += ",columnProperties"
+    return {"updateTable": {"table": body, "fields": fields}}
 
 
 def _clear_conditional_rules(spreadsheet, sheet_ids, metadata=None):
