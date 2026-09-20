@@ -15,6 +15,7 @@ not necessarily gone.
 """
 
 import concurrent.futures
+import html
 import json
 import logging
 import re
@@ -30,7 +31,9 @@ TIMEOUT = 15
 MAX_WORKERS = 8
 USER_AGENT = "InternshipTracker (https://github.com/jaredrojas08/Internship-Tracker, 1.0)"
 
-# (display name, board slug, ats)
+# (display name, board slug, ats). Greenhouse, Ashby and Lever take the bare
+# board name. Workday takes "tenant.wdN/Site", the two halves of the careers
+# URL. Avature takes the portal host.
 STUDIO_BOARDS = [
     ("Riot Games", "riotgames", "greenhouse"),
     ("Epic Games", "epicgames", "greenhouse"),
@@ -61,6 +64,13 @@ STUDIO_BOARDS = [
     ("Second Dinner", "seconddinner", "ashby"),
     ("Believer", "believer", "ashby"),
     ("Theorycraft Games", "theorycraftgames", "lever"),
+    ("Zynga", "zyngacareers", "greenhouse"),
+    # Activision and Blizzard share Microsoft's Workday tenant; the Activision
+    # site also carries Raven, Sledgehammer, Demonware and the other studios.
+    ("Blizzard Entertainment", "xboxgaming.wd1/Blizzard_External_Careers", "workday"),
+    ("Activision", "xboxgaming.wd1/External", "workday"),
+    ("Unity", "unitytech.wd1/Unity", "workday"),
+    ("Electronic Arts", "jobs.ea.com", "avature"),
 ]
 
 ENDPOINTS = {
@@ -93,15 +103,25 @@ NON_US = re.compile(
     r"|poland|warsaw|australia|sydney|melbourne|new zealand|philippines|thailand"
     r"|indonesia|malaysia|israel|turkey|uae|dubai|portugal|lisbon|denmark"
     r"|norway|switzerland|austria|belgium|czech|romania|hungary|greece|egypt"
-    r"|south africa|nigeria|kenya|chile|colombia|peru|serbia)\b",
+    r"|south africa|nigeria|kenya|chile|colombia|peru|serbia|czechia|brno"
+    r"|barcelona|montevideo|uruguay|bengaluru|bangalore|tel aviv|seoul|frankfurt"
+    r"|kuala lumpur|bucharest|budapest|munich)\b",
     re.IGNORECASE,
 )
 
 
-def _get(url):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _request(url, data=None):
+    headers = {"User-Agent": USER_AGENT}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+        headers["Accept"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers)
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return json.load(response)
+        return response.read()
+
+
+def _get(url, data=None):
+    return json.loads(_request(url, data))
 
 
 def _normalize_greenhouse(payload):
@@ -138,18 +158,92 @@ NORMALIZERS = {
     "lever": _normalize_lever,
 }
 
+WORKDAY_PAGE = 20  # the API's maximum
+
+
+def _fetch_workday(slug):
+    """Page through a Workday careers site. slug is "tenant.wdN/Site"."""
+    host, site = slug.split("/", 1)
+    tenant = host.split(".")[0]
+    base = f"https://{host}.myworkdayjobs.com"
+    api = f"{base}/wday/cxs/{tenant}/{site}/jobs"
+    jobs, offset, total = [], 0, None
+    while True:
+        body = json.dumps(
+            {"appliedFacets": {}, "limit": WORKDAY_PAGE, "offset": offset, "searchText": ""}
+        ).encode()
+        payload = _get(api, data=body)
+        # Only the first page reports the total; later pages say 0.
+        if total is None:
+            total = payload.get("total", 0)
+        page = payload.get("jobPostings", [])
+        for job in page:
+            jobs.append(
+                (
+                    job.get("title", ""),
+                    job.get("locationsText", "") or "",
+                    f"{base}/{site}{job.get('externalPath', '')}",
+                )
+            )
+        offset += WORKDAY_PAGE
+        if not page or offset >= total:
+            return jobs
+
+
+AVATURE_ARTICLE = re.compile(r"<article.*?</article>", re.S)
+AVATURE_TITLE = re.compile(
+    r'article__header__text__title[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>\s*(.*?)\s*</a>', re.S
+)
+AVATURE_LOCATION = re.compile(r"list-item-location[^>]*>(.*?)</", re.S)
+
+
+def _fetch_avature(host):
+    """EA's Avature portal has no JSON API, but its search page is server-rendered.
+
+    Searches for "intern" because the portal returns 20 results a page and the
+    full list runs to thousands. EA titles its internships "Intern", not co-op.
+    """
+    jobs, offset = [], 0
+    while True:
+        url = f"https://{host}/careers/SearchJobs/intern?jobOffset={offset}"
+        page = _request(url).decode("utf-8", errors="replace")
+        articles = AVATURE_ARTICLE.findall(page)
+        for article in articles:
+            title = AVATURE_TITLE.search(article)
+            if not title:
+                continue
+            location = AVATURE_LOCATION.search(article)
+            jobs.append(
+                (
+                    html.unescape(title.group(2)).strip(),
+                    html.unescape(re.sub(r"\s+", " ", location.group(1))).strip() if location else "",
+                    title.group(1),
+                )
+            )
+        if len(articles) < 20:
+            return jobs
+        offset += 20
+
+
+FETCHERS = {
+    "workday": _fetch_workday,
+    "avature": _fetch_avature,
+}
+
 
 def _fetch_board(entry):
     """Return (display_name, [(title, location, url), ...], error)."""
     display, slug, ats = entry
     try:
-        payload = _get(ENDPOINTS[ats].format(slug))
+        if ats in ENDPOINTS:
+            jobs = list(NORMALIZERS[ats](_get(ENDPOINTS[ats].format(slug))))
+        else:
+            jobs = FETCHERS[ats](slug)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return display, [], f"{type(exc).__name__}"
-    try:
-        return display, list(NORMALIZERS[ats](payload)), ""
-    except (AttributeError, TypeError) as exc:
+    except (AttributeError, TypeError, KeyError) as exc:
         return display, [], f"unexpected payload shape: {exc}"
+    return display, jobs, ""
 
 
 def is_relevant(title, location):
@@ -158,7 +252,7 @@ def is_relevant(title, location):
         return False
     if NOT_A_ROLE.search(title):
         return False
-    if config.requires_advanced_degree(title):
+    if not config.is_eligible(title):
         return False
     if NON_US.search(location or ""):
         return False
