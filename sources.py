@@ -159,6 +159,8 @@ def url_fingerprint(url):
     cleaned = url.split("?")[0].split("#")[0].rstrip("/")
     parsed = urlparse(cleaned)
     host = parsed.netloc.lower().replace("www.", "")
+    # Greenhouse serves the same board on both hostnames.
+    host = re.sub(r"^(job-)?boards\.greenhouse\.io$", "greenhouse.io", host)
     ids = _JOB_ID.findall(parsed.path)
     if ids:
         return (host, ids[-1])
