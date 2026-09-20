@@ -46,6 +46,21 @@ STUDIO_BOARDS = [
     ("thatgamecompany", "thatgamecompany", "ashby"),
     ("Skydance", "skydance", "lever"),
     ("Jam City", "jamcity", "lever"),
+    # Added 2026-09 after probing ~300 slugs. Greenhouse slugs are checked
+    # against the board's own company_name; Ashby doesn't return one, so those
+    # are confirmed by their posted roles (Marvel SNAP, Guild Wars, etc.).
+    ("2K", "2k", "greenhouse"),
+    ("Take-Two Interactive", "taketwo", "greenhouse"),
+    ("Nintendo of America", "nintendo", "greenhouse"),
+    ("Insomniac Games", "insomniac", "greenhouse"),
+    ("Gearbox", "gearbox", "greenhouse"),
+    ("Crystal Dynamics", "crystaldynamics", "greenhouse"),
+    ("Azra Games", "azragames", "greenhouse"),
+    ("HoYoverse", "hoyoverse", "ashby"),
+    ("ArenaNet", "arenanet", "ashby"),
+    ("Second Dinner", "seconddinner", "ashby"),
+    ("Believer", "believer", "ashby"),
+    ("Theorycraft Games", "theorycraftgames", "lever"),
 ]
 
 ENDPOINTS = {
@@ -78,7 +93,7 @@ NON_US = re.compile(
     r"|poland|warsaw|australia|sydney|melbourne|new zealand|philippines|thailand"
     r"|indonesia|malaysia|israel|turkey|uae|dubai|portugal|lisbon|denmark"
     r"|norway|switzerland|austria|belgium|czech|romania|hungary|greece|egypt"
-    r"|south africa|nigeria|kenya|chile|colombia|peru)\b",
+    r"|south africa|nigeria|kenya|chile|colombia|peru|serbia)\b",
     re.IGNORECASE,
 )
 
