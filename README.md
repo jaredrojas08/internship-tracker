@@ -8,7 +8,7 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 |---|---|---|
 | [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also supplies the Programs tab |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
-| Game studio ATS boards (`studios.py`) | ~20 in season | 26 boards over Greenhouse / Ashby / Lever |
+| Game studio ATS boards (`studios.py`) | ~20 in season | 31 boards over Greenhouse / Ashby / Lever / Workday / Avature |
 
 Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.
 
@@ -162,23 +162,28 @@ That is a timing artifact, not a filter problem. Quant firms and big tech post 1
 
 ### Studio job boards
 
-Live in `studios.py`. Game studios expose public, unauthenticated JSON APIs through their ATS. No scraping, no auth, and the `id` field is a clean dedup key:
+Live in `studios.py`. Most studios expose public, unauthenticated JSON APIs through their ATS. No auth, and the `id` field is a clean dedup key:
 
 ```
 https://boards-api.greenhouse.io/v1/boards/{board}/jobs
 https://api.ashbyhq.com/posting-api/job-board/{board}
 https://api.lever.co/v0/postings/{board}?mode=json
+POST https://{tenant}.wdN.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs   (20 a page; total only on page 1)
 ```
+
+EA is the exception: `jobs.ea.com` is an Avature portal with no JSON API, so its server-rendered search page is parsed for `<article>` blocks. A template change there breaks EA and nothing else.
 
 Verified live boards:
 
 | ATS | Boards |
 |---|---|
-| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` `2k` `taketwo` `nintendo` `insomniac` `gearbox` `crystaldynamics` `azragames` |
+| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` `2k` `taketwo` `nintendo` `insomniac` `gearbox` `crystaldynamics` `azragames` `zyngacareers` |
 | Ashby | `supercell` `thatgamecompany` `hoyoverse` `arenanet` `seconddinner` `believer` |
 | Lever | `skydance` `jamcity` `theorycraftgames` |
+| Workday | `xboxgaming.wd1/Blizzard_External_Careers` `xboxgaming.wd1/External` (Activision, Raven, Sledgehammer, Demonware) `unitytech.wd1/Unity` |
+| Avature | `jobs.ea.com` (EA, Respawn, Maxis, DICE, Motive) |
 
-Not on these three ATSes (probed ~300 slugs, Sept 2026): EA, Respawn, Activision, Blizzard, Xbox studios and Zynga are on Workday; Ubisoft is on SmartRecruiters; Valve, Sucker Punch, Santa Monica Studio, Obsidian, CD Projekt Red, Niantic and Unity weren't found under any obvious slug. Live boards skipped on purpose: Larian, Kabam, NetEase, Avalanche, Crytek, Housemarque, Haven (no US roles); Twitch, VRChat (not studios); Hasbro (mostly non-game roles, and the source tags everything as game work). Beware name collisions: `remedy`, `bethesda`, `raven`, `moonshot`, `take2`, `lightspeed`, `paradox`, `kepler`, `lockwood` resolve to unrelated companies.
+Probed ~300 slugs in Sept 2026. Not found anywhere obvious: Valve, Sucker Punch, Santa Monica Studio, Obsidian, CD Projekt Red, Niantic; Xbox first-party studios sit on Microsoft's custom careers site, not the xboxgaming Workday tenant. Live boards skipped on purpose: Larian, Kabam, NetEase, Avalanche, Crytek, Housemarque, Haven, King (no US roles); Twitch, VRChat (not studios); Hasbro, Warner Bros Discovery (mostly non-game roles, and the source tags everything as game work); Ubisoft on SmartRecruiters (109 postings, US ones are rare and non-engineering). Beware name collisions: `remedy`, `bethesda`, `raven`, `moonshot`, `take2`, `lightspeed`, `paradox`, `kepler`, `lockwood` resolve to unrelated companies.
 
 Three rules specific to this source:
 
