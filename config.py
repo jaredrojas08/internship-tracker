@@ -241,6 +241,10 @@ _UNDERGRAD_OK = re.compile(
 )
 
 
+# Full-time offers for a company's own returning interns. Not open to anyone else.
+_INTERN_CONVERSION = re.compile(r"\bintern conversions?\b", re.IGNORECASE)
+
+
 def requires_advanced_degree(role_title):
     """True if the role is gated on a graduate degree Jared won't have."""
     if not _ADVANCED_DEGREE.search(role_title):
@@ -248,9 +252,16 @@ def requires_advanced_degree(role_title):
     return not _UNDERGRAD_OK.search(role_title)
 
 
+def is_eligible(role_title):
+    """False for roles Jared can't apply to regardless of how relevant they look."""
+    if requires_advanced_degree(role_title):
+        return False
+    return not _INTERN_CONVERSION.search(role_title)
+
+
 def matches_role_filter(role_title):
     """True if the role is both relevant and something Jared is eligible for."""
-    if requires_advanced_degree(role_title):
+    if not is_eligible(role_title):
         return False
     return bool(_ROLE_PATTERN.search(role_title)) or bool(
         _ACRONYM_PATTERN.search(role_title)
