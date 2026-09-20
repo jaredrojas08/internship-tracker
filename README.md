@@ -67,8 +67,8 @@ Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so 
 | J | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
 | K | Last Checked — when the link was last verified |
 | L | Source — which list it came from |
-| M | **Applied?** — yours to toggle |
-| N | Applied Date — auto-stamped when you tick Applied? |
+| M | **Application** — dropdown: `Not Applied` (default, red) / `Applying` (amber) / `Applied` |
+| N | Applied Date — auto-stamped the first time a row is set to `Applied` |
 | O | **Remove?** — check to delete the row |
 
 Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
@@ -81,7 +81,7 @@ Removed programs tombstone to a separate hidden **Removed Programs** tab rather 
 
 ### The columns you own
 
-`Applied?`, `Remove?` and `Deadline` are never overwritten. The script identifies each listing by `Company + Role + Apply URL`, not by row number, so it re-sorts the whole sheet every run without your entries drifting onto the wrong listing.
+`Application`, `Remove?` and `Deadline` are never overwritten. `Applying` is the work queue: rows in that state are the ones to write a tailored resume and cover letter for. The script identifies each listing by `Company + Role + Apply URL`, not by row number, so it re-sorts the whole sheet every run without your entries drifting onto the wrong listing.
 
 Check `Remove?` on anything you don't want. It disappears on the next run and won't come back.
 

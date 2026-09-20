@@ -3,8 +3,8 @@
 Design note: row position carries no meaning. Every listing is identified by
 (company, role, apply_url), and the user-owned columns are re-attached to that
 key on each run. That is what lets the sheet be fully re-sorted every day
-without ever detaching Jared's "Applied?" and "Remove?" checkboxes from the
-listing they belong to.
+without ever detaching Jared's Application dropdown and "Remove?" checkbox from
+the listing they belong to.
 """
 
 import datetime as dt
@@ -173,11 +173,15 @@ def read_listing_state(worksheet):
             "last_checked": cell("Last Checked"),
             "source": cell("Source"),
             "salary": cell("Salary"),
-            "applied": cell("Applied?") in TRUTHY,
+            "application": cell("Application"),
             "applied_date": cell("Applied Date"),
             "remove": cell("Remove?") in TRUTHY,
         }
     return state
+
+
+def is_applied(row):
+    return row.get("Application") == "Applied"
 
 
 def needs_follow_up(row, as_of=None):
@@ -186,7 +190,7 @@ def needs_follow_up(row, as_of=None):
     Rows whose link has since gone DEAD or CLOSED are excluded — those aren't
     waiting on a reply, they're over.
     """
-    if not row.get("Applied?"):
+    if not is_applied(row):
         return False
     if row.get("Link Status") in ("DEAD", "CLOSED"):
         return False
@@ -230,8 +234,8 @@ def read_removed_keys(worksheet):
 def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
     """Merge parsed listings with sheet state. Returns (rows, newly_added, dropped).
 
-    Precedence: the user's Remove? wins over everything. Their Applied? value is
-    carried forward untouched. Date Added is preserved from the existing row so
+    Precedence: the user's Remove? wins over everything. Their Application value
+    is carried forward untouched. Date Added is preserved from the existing row so
     a listing's NEW window doesn't restart on every run.
     """
     as_of = as_of or today()
@@ -253,16 +257,16 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
 
         if existing:
             date_added = existing["date_added"] or today_str
-            applied = existing["applied"]
-            # Stamp the date the first time a row is seen as applied. The stamp
-            # is never cleared afterwards: unticking the box by accident should
-            # not silently destroy the record of when it was submitted.
+            application = existing["application"] or config.APPLICATION_STATES[0]
+            # Stamp the date the first time a row is seen as Applied. The stamp
+            # is never cleared afterwards: flipping the dropdown back by accident
+            # should not silently destroy the record of when it was submitted.
             applied_date = existing.get("applied_date", "")
-            if applied and not applied_date:
+            if application == "Applied" and not applied_date:
                 applied_date = today_str
         else:
             date_added = today_str
-            applied = False
+            application = config.APPLICATION_STATES[0]
             applied_date = ""
             newly_added.append(listing)
 
@@ -294,7 +298,7 @@ def build_rows(listings, state, removed_keys, as_of=None, link_status=None):
                 "Link Status": status,
                 "Last Checked": last_checked,
                 "Source": listing.source,
-                "Applied?": applied,
+                "Application": application,
                 "Applied Date": applied_date,
                 "Remove?": False,
             }
@@ -340,7 +344,7 @@ def rows_to_values(rows):
             row["Link Status"],
             row["Last Checked"],
             row["Source"],
-            bool(row["Applied?"]),
+            row["Application"],
             row["Applied Date"],
             bool(row["Remove?"]),
         ]

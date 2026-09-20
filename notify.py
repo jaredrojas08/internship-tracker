@@ -68,12 +68,12 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     dead_applied = [
         r
         for r in rows
-        if r.get("Applied?") and r.get("Link Status") in ("DEAD", "CLOSED")
+        if sheets.is_applied(r) and r.get("Link Status") in ("DEAD", "CLOSED")
     ]
     soon = []
     for row in rows:
         due = _date(row.get("Deadline"))
-        if due and 0 <= (due - as_of).days <= 14 and not row.get("Applied?"):
+        if due and 0 <= (due - as_of).days <= 14 and not sheets.is_applied(row):
             soon.append((due, row))
     soon.sort(key=lambda pair: pair[0])
 
@@ -131,7 +131,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     if dropped:
         parts.append(f"🗑️ Removed {len(dropped)} listing(s) you unchecked.")
 
-    total_applied = sum(1 for r in rows if r.get("Applied?"))
+    total_applied = sum(1 for r in rows if sheets.is_applied(r))
     open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
     parts.append(f"{open_roles} open · {total_applied} applied")
 
@@ -150,13 +150,13 @@ def _quiet_digest(rows, as_of):
     dismissed at a glance — but present, so silence unambiguously means the run
     failed rather than that nothing happened.
     """
-    applied = sum(1 for r in rows if r.get("Applied?"))
+    applied = sum(1 for r in rows if sheets.is_applied(r))
     open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
 
     upcoming = []
     for row in rows:
         due = _date(row.get("Deadline"))
-        if due and due >= as_of and not row.get("Applied?"):
+        if due and due >= as_of and not sheets.is_applied(row):
             upcoming.append((due, row))
     upcoming.sort(key=lambda pair: pair[0])
 

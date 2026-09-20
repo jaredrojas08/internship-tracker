@@ -35,10 +35,12 @@ LISTINGS_HEADERS = [
     "Link Status",
     "Last Checked",
     "Source",
-    "Applied?",
+    "Application",
     "Applied Date",
     "Remove?",
 ]
+# The Application dropdown, in order. The first is the default for a new row.
+APPLICATION_STATES = ("Not Applied", "Applying", "Applied")
 PROGRAMS_HEADERS = [
     "Organization",
     "Opportunity",
@@ -86,6 +88,8 @@ PALETTE = {
     "muted_taupe": "#A59383",
     "light_warm_grey": "#C6B8AB",
     "white": "#FFFFFF",
+    "red": "#B03A2E",
+    "amber": "#D4A054",
 }
 
 

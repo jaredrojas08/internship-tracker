@@ -21,7 +21,7 @@ COL_DEADLINE = _LISTING_COL("Deadline")
 COL_REMOTE = _LISTING_COL("Remote?")
 COL_GAME = _LISTING_COL("Game?")
 COL_LINK_STATUS = _LISTING_COL("Link Status")
-COL_APPLIED = _LISTING_COL("Applied?")
+COL_APPLICATION = _LISTING_COL("Application")
 COL_APPLIED_DATE = _LISTING_COL("Applied Date")
 
 # Programs tab.
@@ -32,6 +32,8 @@ COL_PROG_APPLIED = config.PROGRAMS_HEADERS.index("Applied?")
 CHECKBOX_HEADERS = {"Applied?", "Remove?"}
 # Columns typed as real dates so the sheet sorts and filters them as dates.
 DATE_HEADERS = {"Applied Date"}
+# Columns rendered as a dropdown, with their allowed values.
+DROPDOWN_HEADERS = {"Application": config.APPLICATION_STATES}
 
 
 def _column_type(title, index, checkbox_cols):
@@ -39,6 +41,8 @@ def _column_type(title, index, checkbox_cols):
         return "BOOLEAN"
     if title in DATE_HEADERS:
         return "DATE"
+    if title in DROPDOWN_HEADERS:
+        return "DROPDOWN"
     return "TEXT"
 
 
@@ -52,7 +56,7 @@ def _a1(index):
 
 
 A1_LINK_STATUS = _a1(COL_LINK_STATUS)
-A1_APPLIED = _a1(COL_APPLIED)
+A1_APPLICATION = _a1(COL_APPLICATION)
 A1_DEADLINE = _a1(COL_DEADLINE)
 
 
@@ -128,7 +132,7 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
 
     data = _grid(sheet_id, 1, num_rows + 1, 0, num_cols)
     remote_range = _grid(sheet_id, 1, num_rows + 1, COL_REMOTE, COL_REMOTE + 1)
-    applied_range = _grid(sheet_id, 1, num_rows + 1, COL_APPLIED, COL_APPLIED + 1)
+    application_range = _grid(sheet_id, 1, num_rows + 1, COL_APPLICATION, COL_APPLICATION + 1)
     link_range = _grid(sheet_id, 1, num_rows + 1, COL_LINK_STATUS, COL_LINK_STATUS + 1)
     whole_row = _grid(sheet_id, 1, num_rows + 1, 0, num_cols)
 
@@ -162,7 +166,7 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
     del data  # banding is handled natively by the table's rowsProperties
     deadline_range = _grid(sheet_id, 1, num_rows + 1, COL_DEADLINE, COL_DEADLINE + 1)
     game_range = _grid(sheet_id, 1, num_rows + 1, COL_GAME, COL_GAME + 1)
-    ls, ap, dl = A1_LINK_STATUS, A1_APPLIED, A1_DEADLINE
+    ls, ap, dl = A1_LINK_STATUS, A1_APPLICATION, A1_DEADLINE
     ad = _a1(COL_APPLIED_DATE)
 
     return [
@@ -186,11 +190,14 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         # Game roles are the priority tier, so they get the strongest fill.
         text_eq(game_range, "YES", PALETTE["deep_berry"], PALETTE["white"], True),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
-        formula([applied_range], f"=${ap}2=TRUE", PALETTE["warm_brown"], PALETTE["white"], True),
+        # Application state: red until something happens, amber while working on it.
+        text_eq(application_range, "Not Applied", PALETTE["red"], PALETTE["white"], True),
+        text_eq(application_range, "Applying", PALETTE["amber"], bold=True),
+        text_eq(application_range, "Applied", PALETTE["warm_brown"], PALETTE["white"], True),
         # An application sitting unanswered past the follow-up window.
         formula(
             [_grid(sheet_id, 1, num_rows + 1, COL_APPLIED_DATE, COL_APPLIED_DATE + 1)],
-            f"=AND(${ap}2=TRUE,ISNUMBER(${ad}2),"
+            f'=AND(${ap}2="Applied",ISNUMBER(${ad}2),'
             f"${ad}2<=TODAY()-{config.FOLLOW_UP_AFTER_DAYS})",
             PALETTE["dusty_rose"],
             PALETTE["deep_berry"],
@@ -281,14 +288,22 @@ def _table_body(sheet_id, name, headers, num_rows, header_bg, checkbox_cols=()):
 
 
 def _column_properties(headers, checkbox_cols):
-    return [
-        {
+    columns = []
+    for index, title in enumerate(headers):
+        column = {
             "columnIndex": index,
             "columnName": title,
             "columnType": _column_type(title, index, checkbox_cols),
         }
-        for index, title in enumerate(headers)
-    ]
+        if title in DROPDOWN_HEADERS:
+            column["dataValidationRule"] = {
+                "condition": {
+                    "type": "ONE_OF_LIST",
+                    "values": [{"userEnteredValue": v} for v in DROPDOWN_HEADERS[title]],
+                }
+            }
+        columns.append(column)
+    return columns
 
 
 def retype_table(worksheet, headers, num_rows):
