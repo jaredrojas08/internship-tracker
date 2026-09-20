@@ -132,7 +132,6 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
 
     data = _grid(sheet_id, 1, num_rows + 1, 0, num_cols)
     remote_range = _grid(sheet_id, 1, num_rows + 1, COL_REMOTE, COL_REMOTE + 1)
-    application_range = _grid(sheet_id, 1, num_rows + 1, COL_APPLICATION, COL_APPLICATION + 1)
     link_range = _grid(sheet_id, 1, num_rows + 1, COL_LINK_STATUS, COL_LINK_STATUS + 1)
     whole_row = _grid(sheet_id, 1, num_rows + 1, 0, num_cols)
 
@@ -190,10 +189,8 @@ def _conditional_rules(sheet_id, num_rows, num_cols):
         # Game roles are the priority tier, so they get the strongest fill.
         text_eq(game_range, "YES", PALETTE["deep_berry"], PALETTE["white"], True),
         text_eq(remote_range, "YES", PALETTE["dusty_rose"], bold=True),
-        # Application state: red until something happens, amber while working on it.
-        text_eq(application_range, "Not Applied", PALETTE["red"], PALETTE["white"], True),
-        text_eq(application_range, "Applying", PALETTE["amber"], bold=True),
-        text_eq(application_range, "Applied", PALETTE["warm_brown"], PALETTE["white"], True),
+        # The Application column gets no cell rule: the dropdown chips carry the
+        # color, and a cell fill behind them clashes with it.
         # An application sitting unanswered past the follow-up window.
         formula(
             [_grid(sheet_id, 1, num_rows + 1, COL_APPLIED_DATE, COL_APPLIED_DATE + 1)],
