@@ -199,8 +199,9 @@ Do not hand-write these. Save two real payloads:
 mkdir -p tests/fixtures
 curl -sL -A "Mozilla/5.0" "https://job-boards.greenhouse.io/riotgames/jobs/7016915" \
   -o tests/fixtures/greenhouse_job.html
-curl -s -X POST "https://bah.wd1.myworkdayjobs.com/wday/cxs/bah/bah_jobs/job/McLean-VA/University--2027-Summer-Games-Software-Developer-Intern---McLean--VA_R0249827" \
-  -H "Accept: application/json" -H "Content-Type: application/json" \
+# Workday's job-DETAIL endpoint is GET. Only the job-LIST endpoint takes POST.
+curl -s "https://bah.wd1.myworkdayjobs.com/wday/cxs/bah/bah_jobs/job/McLean-VA/University--2027-Summer-Games-Software-Developer-Intern---McLean--VA_R0249827" \
+  -H "Accept: application/json" \
   -o tests/fixtures/workday_job.json
 ```
 
