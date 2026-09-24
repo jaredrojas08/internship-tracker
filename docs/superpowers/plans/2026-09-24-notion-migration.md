@@ -346,7 +346,8 @@ class PageData:
 
 def _workday_api_url(url: str) -> str:
     """Turn a Workday careers URL into its CXS JSON endpoint, or '' if not Workday."""
-    match = re.match(r"https://([\w.-]+)\.myworkdayjobs\.com/(?:[a-z-]+/)?([^/]+)(/job/.+)$", url)
+    # The locale segment is "en-US", so it cannot be matched with [a-z-]+.
+    match = re.match(r"https://([\w.-]+)\.myworkdayjobs\.com/(?:[\w-]+/)?([^/]+)(/job/.+)$", url)
     if not match:
         return ""
     host, site, path = match.groups()
@@ -663,8 +664,10 @@ def _enrich_one(listing, session):
     requirements = ats.extract_requirements(page.text)
     listing.skills = [requirements] if requirements else [GENERIC_SKILLS]
     listing.notes = ats.extract_notes(page.text)
-    listing.recruiter = ats.extract_contact_email(page.html)
-    when, precision = ats.extract_posted_at(page.html)
+    # The Workday branch returns text with no html, so fall back to it.
+    markup = page.html or page.text
+    listing.recruiter = ats.extract_contact_email(markup)
+    when, precision = ats.extract_posted_at(markup)
     if when:
         listing.posted_at, listing.posted_precision = when, precision
 
@@ -1019,7 +1022,7 @@ class TestNotionRun(unittest.TestCase):
         api.existing_job_ids.return_value = {listings[0].job_id}
         api.add_all.return_value = 1
         internship_tracker.write_to_notion(api, "db1", listings, tombstoned=set())
-        written = api.add_all.call_args[0][2]
+        written = api.add_all.call_args[0][1]
         self.assertEqual([l.job_id for l in written], [listings[1].job_id])
 
     def test_skips_tombstoned_listings(self):
@@ -1028,7 +1031,7 @@ class TestNotionRun(unittest.TestCase):
         api.existing_job_ids.return_value = set()
         internship_tracker.write_to_notion(api, "db1", listings,
                                            tombstoned={listings[0].job_id})
-        self.assertEqual(api.add_all.call_args[0][2], [])
+        self.assertEqual(api.add_all.call_args[0][1], [])
 
     def test_nothing_new_makes_no_write_call(self):
         listings = [make("https://x.com/jobs/1111111")]
@@ -1088,8 +1091,8 @@ In `main`, immediately after `listings, duplicates = sources.deduplicate(listing
         database_id = config.require_env("NOTION_DATABASE_ID")
         api.ensure_schema(database_id)
         write_to_notion(api, database_id, listings, tombstones.load())
-        if not args.no_notify:
-            notify.send_digest_if_due(listings)
+        # The digest call lands in Task 9, which is where send_digest_if_due
+        # is written. Adding it here would raise AttributeError.
         return 0
 ```
 
@@ -1191,7 +1194,7 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'migrate'`
 
 - [ ] **Step 3: Write the implementation**
 
-`migrate.py` reads the sheet with the existing `sheets.read_listing_state`, converts, and writes through `notion_sink`. The `Application` value maps straight across since the Notion select uses the same three labels plus three more. Preserve `Applied Date` into `Notes` as `Applied YYYY-MM-DD` when present, because Notion has no separate applied-date column in Maia's schema.
+`migrate.py` reads the sheet with `worksheet.get_all_values()` and zips the header row onto each row, so `rows_to_listings` receives dicts keyed by the sheet's own column names exactly as the test above spells them. Do not route this through `sheets.read_listing_state`, which reshapes keys to lowercase and would not match. It then writes through `notion_sink`. The `Application` value maps straight across since the Notion select uses the same three labels plus three more. Preserve `Applied Date` into `Notes` as `Applied YYYY-MM-DD` when present, because Notion has no separate applied-date column in Maia's schema.
 
 - [ ] **Step 4: Run test to verify it passes**
 
