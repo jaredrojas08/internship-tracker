@@ -2,7 +2,9 @@
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Optional
 
 import requests
 
@@ -37,6 +39,23 @@ class Listing:
     # whether the title contains a game keyword.
     from_game_studio: bool = False
 
+    # --- Notion-side fields, filled in by enrich.py -------------------------
+    portal_url: str = ""          # resolved employer page; falls back to apply_url
+    posted_at: Optional[datetime] = None   # always tz-aware UTC
+    # How much to trust posted_at: "scraped" | "commit" | "first_seen" | "day"
+    posted_precision: str = "unknown"
+    category: str = ""
+    resume_keywords: List[str] = field(default_factory=list)
+    skills: List[str] = field(default_factory=list)
+    recruiter: str = ""
+    notes: str = ""
+    deadline: str = ""            # ISO date, user-owned once written
+
+    # Lists that syndicate the same few hundred well-known postings. A listing
+    # none of them carried came from a smaller board, which is the interesting
+    # case.
+    MAINSTREAM_SOURCES = ("sndsh404", "speedyapply")
+
     @property
     def is_remote(self):
         return "remote" in self.location.lower()
@@ -53,6 +72,24 @@ class Listing:
             self.role.strip().lower(),
             self.apply_url.strip().lower(),
         )
+
+    @property
+    def job_id(self):
+        """Stable identity for Notion dedup, derived from the posting URL."""
+        import sources
+        host, ident = sources.url_fingerprint(self.apply_url) or ("", self.role.lower())
+        return f"{host}:{ident}"
+
+    def is_niche(self):
+        """True when no mainstream aggregator carried this listing."""
+        found_in = self.source.lower()
+        return not any(name in found_in for name in self.MAINSTREAM_SOURCES)
+
+    def keywords_cell(self):
+        return ", ".join(self.resume_keywords)
+
+    def skills_cell(self):
+        return ", ".join(self.skills)
 
 
 @dataclass
