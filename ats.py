@@ -161,7 +161,9 @@ def extract_posted_at(html: str) -> tuple[datetime | None, str]:
 # Headings that introduce what a candidate needs, and the ones that end that
 # section. Exact wording pinned by the migration plan, not open to tuning.
 REQUIREMENT_HEADINGS = ("requirements", "qualifications", "basic qualifications",
-                        "minimum qualifications", "what you'll need", "you have",
+                        "minimum qualifications", "minimum requirements",
+                        "basic requirements", "required qualifications",
+                        "required skills", "what you'll need", "you have",
                         "who you are", "skills")
 STOP_HEADINGS = ("benefits", "compensation", "perks", "about us", "equal", "eeo",
                  "accommodation", "what we offer", "why join")

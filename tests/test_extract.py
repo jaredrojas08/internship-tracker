@@ -43,6 +43,32 @@ class TestRequirements(unittest.TestCase):
         self.assertLessEqual(len(out), 300)
         self.assertTrue(out.endswith("..."))
 
+    def test_lifts_minimum_requirements_heading(self):
+        posting = """
+Minimum Requirements
+- Currently pursuing a BS in Computer Science
+- Experience with C# and Unity
+
+Benefits
+We offer medical, dental and a 401(k) match.
+"""
+        out = ats.extract_requirements(posting)
+        self.assertIn("BS in Computer Science", out)
+        self.assertNotIn("401(k)", out)
+
+    def test_lifts_required_skills_heading(self):
+        posting = """
+Required Skills
+- Proficiency in Python and SQL
+- Familiarity with distributed systems
+
+Benefits
+We offer medical, dental and a 401(k) match.
+"""
+        out = ats.extract_requirements(posting)
+        self.assertIn("Proficiency in Python and SQL", out)
+        self.assertNotIn("401(k)", out)
+
     def test_merged_heading_does_not_leak_into_benefits(self):
         # "Requirements and Benefits" must not open a section that runs into
         # the benefits text that follows it; capturing nothing is preferred.
