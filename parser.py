@@ -77,7 +77,10 @@ class Listing:
     def job_id(self):
         """Stable identity for Notion dedup, derived from the posting URL."""
         import sources
-        host, ident = sources.url_fingerprint(self.apply_url) or ("", self.role.lower())
+        # Company keeps this branch from colliding across companies with the same
+        # role text and no URL, since url_fingerprint returns None for that case.
+        fallback = ("", f"{self.company.lower()}:{self.role.lower()}")
+        host, ident = sources.url_fingerprint(self.apply_url) or fallback
         return f"{host}:{ident}"
 
     def is_niche(self):

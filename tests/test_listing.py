@@ -27,6 +27,16 @@ class TestJobId(unittest.TestCase):
         self.assertIsInstance(make().job_id, str)
         self.assertTrue(make().job_id)
 
+    def test_job_id_differs_across_companies_when_url_is_empty(self):
+        a = make(company="Riot Games", role="Software Engineer Intern", apply_url="")
+        b = make(company="Valve", role="Software Engineer Intern", apply_url="")
+        self.assertNotEqual(a.job_id, b.job_id)
+
+    def test_job_id_matches_across_runs_when_url_is_empty(self):
+        a = make(company="Riot Games", role="Software Engineer Intern", apply_url="")
+        b = make(company="Riot Games", role="Software Engineer Intern", apply_url="")
+        self.assertEqual(a.job_id, b.job_id)
+
 
 class TestNiche(unittest.TestCase):
     def test_studio_board_is_niche(self):
