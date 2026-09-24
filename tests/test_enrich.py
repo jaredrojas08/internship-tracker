@@ -96,6 +96,22 @@ class TestEnrich(unittest.TestCase):
         self.assertEqual((listing.posted_at.year, listing.posted_at.month, listing.posted_at.day),
                          (2026, 9, 1))
 
+    def test_enrich_all_recovers_category_and_keywords_when_category_for_itself_raises(self):
+        listing = make()
+        with mock.patch.object(enrich, "category_for", side_effect=RuntimeError("boom")):
+            enrich.enrich_all([listing])  # must not raise
+
+        self.assertTrue(listing.category)
+        self.assertTrue(listing.resume_keywords)
+        self.assertEqual(listing.skills, [enrich.GENERIC_SKILLS])
+
+    def test_game_studio_listing_keeps_game_category_when_category_for_raises(self):
+        listing = make(from_game_studio=True)
+        with mock.patch.object(enrich, "category_for", side_effect=RuntimeError("boom")):
+            enrich.enrich_all([listing])  # must not raise
+
+        self.assertEqual(listing.category, "Game Programming")
+
 
 if __name__ == "__main__":
     unittest.main()

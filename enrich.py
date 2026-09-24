@@ -68,7 +68,11 @@ def enrich_all(listings, max_workers=8):
                 # (e.g. category_for itself raised); a failed listing must still
                 # carry the same three non-empty fields a successful one does.
                 if not listing.category:
-                    listing.category = "Software Engineering"
+                    try:
+                        listing.category = category_for(listing)
+                    except Exception:  # noqa: BLE001 - from_game_studio is a plain bool, never raises
+                        listing.category = ("Game Programming" if listing.from_game_studio
+                                            else "Software Engineering")
                 if not listing.resume_keywords:
                     listing.resume_keywords = list(KEYWORDS_BY_CATEGORY.get(listing.category, []))
                 if not listing.skills:
