@@ -65,6 +65,10 @@ class Listing:
         return self.from_game_studio or config.is_game_role(self.role)
 
     @property
+    def term(self):
+        return config.term_for(self.role)
+
+    @property
     def key(self):
         """Identity across runs. Row position is never used for this."""
         return (

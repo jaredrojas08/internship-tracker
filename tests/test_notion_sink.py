@@ -95,6 +95,20 @@ class TestAdd(unittest.TestCase):
         props = api.calls[-1][2]["properties"]
         self.assertNotIn("Recruiter Contact", props)
 
+    def test_term_named_in_the_role_is_written(self):
+        api = FakeNotion()
+        listing = make(role="Winter 2027 Co-op")
+        api.add("db1", listing)
+        props = api.calls[-1][2]["properties"]
+        self.assertEqual(props["Term"]["select"]["name"], listing.term)
+        self.assertEqual(listing.term, "Winter 2027")
+
+    def test_unlabelled_role_writes_unspecified_term(self):
+        api = FakeNotion()
+        api.add("db1", make(role="Gameplay Programmer Intern"))
+        props = api.calls[-1][2]["properties"]
+        self.assertEqual(props["Term"]["select"]["name"], "Unspecified")
+
     def test_add_all_survives_one_failing_row(self):
         class Flaky(FakeNotion):
             def _call(self, method, path, **kw):
@@ -105,6 +119,78 @@ class TestAdd(unittest.TestCase):
         api = Flaky()
         written = api.add_all("db1", [make(company="bad"), make(company="Good Co")])
         self.assertEqual(written, 1)
+
+
+def _row(page_id, skills="", recruiter="", company="Acme"):
+    """A minimal Notion query-result row, shaped like the real API response."""
+    return {
+        "id": page_id,
+        "properties": {
+            notion_sink.P_SKILLS: {"rich_text": [{"plain_text": skills}]} if skills else {"rich_text": []},
+            notion_sink.P_RECRUITER: {"email": recruiter} if recruiter else {},
+            notion_sink.P_COMPANY: {"rich_text": [{"plain_text": company}]},
+            notion_sink.P_PORTAL: {"url": "https://example.com/job"},
+        },
+    }
+
+
+class TestBackfill(unittest.TestCase):
+    def test_only_rows_missing_skills_or_recruiter_come_back(self):
+        api = FakeNotion()
+        complete = _row("complete", skills="Python", recruiter="a@b.com")
+        missing_skills = _row("missing-skills", recruiter="a@b.com")
+        missing_recruiter = _row("missing-recruiter", skills="Python")
+        api.responses = [{"results": [complete, missing_skills, missing_recruiter],
+                          "has_more": False}]
+
+        out = api.rows_to_backfill("db1")
+
+        page_ids = {row["page_id"] for row in out}
+        self.assertEqual(page_ids, {"missing-skills", "missing-recruiter"})
+
+    def test_limit_caps_how_many_rows_come_back(self):
+        api = FakeNotion()
+        rows = [_row(f"row-{i}") for i in range(5)]
+        api.responses = [{"results": rows, "has_more": False}]
+
+        out = api.rows_to_backfill("db1", limit=2)
+
+        self.assertEqual(len(out), 2)
+
+
+class TestUpdateRow(unittest.TestCase):
+    def test_only_skills_and_recruiter_are_sent(self):
+        api = FakeNotion()
+        api.update_row("page1", skills="Unity, C#", recruiter="recruiter@studio.com")
+        body = api.calls[-1][2]
+        self.assertEqual(set(body["properties"]), {"Skill Requirements", "Recruiter Contact"})
+        self.assertNotIn("Applied", body["properties"])
+        self.assertNotIn("Notes", body["properties"])
+        self.assertNotIn("Deadline", body["properties"])
+        self.assertNotIn("My Resume PDF", body["properties"])
+
+
+class TestExistingJobIdsPagination(unittest.TestCase):
+    def test_ids_from_every_page_come_back(self):
+        api = FakeNotion()
+        page_one = {
+            "results": [_page_with_job_id("id-1")],
+            "has_more": True,
+            "next_cursor": "cursor-abc",
+        }
+        page_two = {"results": [_page_with_job_id("id-2")], "has_more": False}
+        api.responses = [page_one, page_two]
+
+        ids = api.existing_job_ids("db1")
+
+        self.assertEqual(ids, {"id-1", "id-2"})
+        # The second query must have followed the cursor from the first page.
+        second_call_body = api.calls[1][2]
+        self.assertEqual(second_call_body["start_cursor"], "cursor-abc")
+
+
+def _page_with_job_id(job_id):
+    return {"properties": {notion_sink.P_JOB_ID: {"rich_text": [{"plain_text": job_id}]}}}
 
 
 if __name__ == "__main__":

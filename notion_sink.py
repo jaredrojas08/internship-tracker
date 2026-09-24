@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set
 
 import requests
 
@@ -166,6 +166,61 @@ class Notion:
         log.info("database already holds %d job ids", len(ids))
         return ids
 
+    def rows_to_backfill(self, database_id: str, limit: int = 25) -> List[dict]:
+        """Existing rows missing Skill Requirements or Recruiter Contact, newest first.
+
+        A page whose posting was unreachable on first fetch would otherwise
+        keep whatever placeholder it got forever. Capped per run so a bad
+        stretch of upstream failures heals gradually rather than reprocessing
+        the whole database at once.
+        """
+        out: List[dict] = []
+        cursor: Optional[str] = None
+        while True:
+            body = {
+                "page_size": 100,
+                "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+            }
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            for row in page.get("results", []):
+                props = row.get("properties", {})
+                skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
+                recruiter = props.get(P_RECRUITER, {}).get("email") or ""
+                if skills and recruiter:
+                    continue
+                out.append({
+                    "page_id": row["id"],
+                    "url": props.get(P_PORTAL, {}).get("url") or "",
+                    "company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
+                    "needs_skills": not skills,
+                    "needs_recruiter": not recruiter,
+                })
+                if limit and len(out) >= limit:
+                    log.info("%d rows queued for backfill (capped)", len(out))
+                    return out
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+        log.info("%d existing rows could be backfilled", len(out))
+        return out
+
+    def update_row(self, page_id: str, skills: str = "", recruiter: str = "") -> None:
+        """Patch only Skill Requirements and Recruiter Contact.
+
+        Backfill only repairs what enrichment missed. Applied, My Resume PDF,
+        Deadline and Notes are the user's own work and must survive untouched.
+        """
+        props: Dict[str, dict] = {}
+        if skills:
+            props[P_SKILLS] = {"rich_text": [{"type": "text", "text": {"content": skills[:2000]}}]}
+        if recruiter:
+            props[P_RECRUITER] = {"email": recruiter}
+        if not props:
+            return
+        self._call("PATCH", f"/pages/{page_id}", json={"properties": props})
+
     def add(self, database_id: str, listing) -> None:
         def rt(value: str) -> dict:
             return {"rich_text": [{"type": "text", "text": {"content": value[:2000]}}]} if value else {"rich_text": []}
@@ -193,6 +248,8 @@ class Notion:
         }
         if listing.category:
             props[P_CATEGORY] = {"select": {"name": _select(listing.category)}}
+        # listing.term always resolves (falls back to "Unspecified" in config.term_for).
+        props[P_TERM] = {"select": {"name": _select(listing.term)}}
         if listing.source:
             props[P_SOURCE] = {"select": {"name": _select(listing.source)}}
         props[P_NICHE] = {"checkbox": listing.is_niche()}

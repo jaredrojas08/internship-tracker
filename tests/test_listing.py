@@ -47,6 +47,15 @@ class TestNiche(unittest.TestCase):
         self.assertFalse(make(source="sndsh404").is_niche())
 
 
+class TestTerm(unittest.TestCase):
+    def test_role_naming_a_term_carries_it(self):
+        listing = make(role="Winter 2027 Co-op")
+        self.assertEqual(listing.term, "Winter 2027")
+
+    def test_role_with_no_term_is_unspecified(self):
+        self.assertEqual(make(role="Software Engineer Intern").term, "Unspecified")
+
+
 class TestNewFields(unittest.TestCase):
     def test_defaults_are_empty_not_none(self):
         listing = make()

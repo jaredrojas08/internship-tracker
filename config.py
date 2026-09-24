@@ -281,6 +281,47 @@ def matches_role_filter(role_title):
     )
 
 
+# --- Term extraction ---------------------------------------------------------
+
+# The README keeps "Western Digital Summer 2027" and "Winter 2027 Co-op" as
+# separate rows on purpose, so the term named in a role title is real signal,
+# not decoration.
+_SEASON_WORDS = r"(?:summer|winter|fall|spring)"
+_SEASON_ABBR = {"su": "Summer", "wi": "Winter", "fa": "Fall", "sp": "Spring"}
+
+_TERM_PATTERN = re.compile(
+    rf"""
+    \b(?P<season1>{_SEASON_WORDS})\b\s*'?\s*(?P<year1>20\d{{2}}|\d{{2}})\b
+    |
+    \b(?P<year2>20\d{{2}})\b\s*\b(?P<season2>{_SEASON_WORDS})\b
+    |
+    \b(?P<abbr>su|wi|fa|sp)(?P<year3>\d{{2}})\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def term_for(role_title):
+    """Extract a term like "Summer 2027" from a role title.
+
+    Handles both orderings ("Summer 2027" / "2027 Summer"), the apostrophe-year
+    shorthand ("Summer '27"), and two-letter season codes ("Su27"). Returns
+    "Unspecified" when the title names no term.
+    """
+    match = _TERM_PATTERN.search(role_title)
+    if not match:
+        return "Unspecified"
+    if match.group("abbr"):
+        season = _SEASON_ABBR[match.group("abbr").lower()]
+        year = match.group("year3")
+    else:
+        season = (match.group("season1") or match.group("season2")).capitalize()
+        year = match.group("year1") or match.group("year2")
+    if len(year) == 2:
+        year = f"20{year}"
+    return f"{season} {year}"
+
+
 # --- Credentials -----------------------------------------------------------
 
 
