@@ -60,10 +60,23 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
+def _workday_description_html(payload: dict) -> str:
+    info = payload.get("jobPostingInfo") or {}
+    return info.get("jobDescription", "")
+
+
 def workday_description(payload: dict) -> str:
     """Plain text from a Workday CXS job payload."""
-    info = payload.get("jobPostingInfo") or {}
-    return html_to_text(info.get("jobDescription", ""))
+    return html_to_text(_workday_description_html(payload))
+
+
+def _looks_truncated(markup: str, text: str) -> bool:
+    """A big markup blob reduced to almost no text is a parse failure, not a short posting.
+
+    An unclosed <script> or <style> tag makes HTMLParser treat the rest of the
+    document as CDATA, silently dropping it. That must not present as ok=True.
+    """
+    return len(markup) > 2000 and len(text) < 200
 
 
 @dataclass
@@ -95,11 +108,18 @@ def fetch_page(url: str, session: requests.Session) -> PageData:
             resp = session.get(api, timeout=TIMEOUT,
                                headers={"Accept": "application/json"})
             resp.raise_for_status()
-            return PageData(text=workday_description(resp.json()), ok=True)
+            description_html = _workday_description_html(resp.json())
+            text = html_to_text(description_html)
+            if _looks_truncated(description_html, text):
+                return PageData()
+            return PageData(text=text, ok=True)
         resp = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         body = resp.text
-        return PageData(text=html_to_text(body), html=body, ok=True)
+        text = html_to_text(body)
+        if _looks_truncated(body, text):
+            return PageData()
+        return PageData(text=text, html=body, ok=True)
     except Exception as exc:  # noqa: BLE001 - a dead posting must not fail the run
         log.debug("could not fetch %s: %s", url[:80], exc)
         return PageData()
