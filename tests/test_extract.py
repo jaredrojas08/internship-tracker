@@ -39,7 +39,49 @@ class TestRequirements(unittest.TestCase):
 
     def test_truncates_to_max_chars(self):
         long_text = "Requirements\n" + ("- a very long bullet line\n" * 200)
-        self.assertLessEqual(len(ats.extract_requirements(long_text, max_chars=300)), 300)
+        out = ats.extract_requirements(long_text, max_chars=300)
+        self.assertLessEqual(len(out), 300)
+        self.assertTrue(out.endswith("..."))
+
+    def test_merged_heading_does_not_leak_into_benefits(self):
+        # "Requirements and Benefits" must not open a section that runs into
+        # the benefits text that follows it; capturing nothing is preferred.
+        posting = """
+Requirements and Benefits
+We offer medical, dental and a 401(k) match.
+
+Equal Employment Opportunity
+We are an equal opportunity employer.
+"""
+        self.assertEqual(ats.extract_requirements(posting), "")
+
+    def test_skillset_overview_is_not_a_requirements_heading(self):
+        # "Skillset" must not match the heading "skills" via prefix.
+        posting = """
+Skillset Overview
+Our engineers use a wide variety of tools depending on the project.
+
+Requirements
+- Currently pursuing a BS in Computer Science
+"""
+        out = ats.extract_requirements(posting)
+        self.assertIn("BS in Computer Science", out)
+        self.assertNotIn("wide variety of tools", out)
+
+    def test_long_eeo_sentence_still_stops_capture(self):
+        # A stop heading over 60 chars must still be recognised as a stop,
+        # not slip past the filter as if it were an ordinary bullet.
+        posting = """
+Requirements
+- Currently pursuing a BS in Computer Science
+
+Equal employment opportunity is a fundamental principle at our company, and we are committed to a work environment where all employees and applicants are treated with dignity and respect.
+- 401k match provided as part of benefits
+"""
+        out = ats.extract_requirements(posting)
+        self.assertIn("BS in Computer Science", out)
+        self.assertNotIn("401k", out)
+        self.assertNotIn("dignity", out)
 
 
 class TestContactEmail(unittest.TestCase):

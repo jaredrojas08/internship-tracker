@@ -168,11 +168,30 @@ STOP_HEADINGS = ("benefits", "compensation", "perks", "about us", "equal", "eeo"
 BULLET_RE = re.compile(r"^\s*[-*•●▪‣⁃\d]+[.)]?\s+")
 
 
-def _is_heading(line: str, names: tuple) -> bool:
-    probe = line.strip().strip(":").lower()
-    if len(probe) > 60:
+def _matches_heading(probe: str, name: str) -> bool:
+    """Whole-word match: "skillset" must not match the heading "skills"."""
+    if probe == name:
+        return True
+    if not probe.startswith(name):
         return False
-    return any(probe == n or probe.startswith(n) for n in names)
+    return not probe[len(name)].isalnum()
+
+
+def _is_heading(line: str, names: tuple, max_len: int = 60) -> bool:
+    probe = line.strip().strip(":").lower()
+    if max_len and len(probe) > max_len:
+        return False
+    return any(_matches_heading(probe, n) for n in names)
+
+
+def _contains_heading_word(line: str, names: tuple) -> bool:
+    """Whether any name shows up anywhere in the line as a whole word.
+
+    Catches a merged line like "Requirements and Benefits", where a stop word
+    rides along with what would otherwise be a legitimate opening heading.
+    """
+    probe = line.strip().strip(":").lower()
+    return any(re.search(rf"\b{re.escape(n)}\b", probe) for n in names)
 
 
 def extract_requirements(text: str, max_chars: int = 900) -> str:
@@ -187,7 +206,12 @@ def extract_requirements(text: str, max_chars: int = 900) -> str:
 
     start = None
     for i, line in enumerate(lines):
-        if line and _is_heading(line, REQUIREMENT_HEADINGS):
+        if not line:
+            continue
+        # A heading that also carries a stop word (e.g. "Requirements and
+        # Benefits") must not open a section that then bleeds into that
+        # boilerplate. Skip it and keep looking rather than capture it.
+        if _is_heading(line, REQUIREMENT_HEADINGS) and not _contains_heading_word(line, STOP_HEADINGS):
             start = i + 1
             break
     if start is None:
@@ -197,7 +221,9 @@ def extract_requirements(text: str, max_chars: int = 900) -> str:
     for line in lines[start:]:
         if not line:
             continue
-        if _is_heading(line, STOP_HEADINGS):
+        # No length cap here: a long sentence that opens with "Equal
+        # employment opportunity..." is still boilerplate, not a bullet.
+        if _is_heading(line, STOP_HEADINGS, max_len=0):
             break
         if _is_heading(line, REQUIREMENT_HEADINGS):
             continue  # a second requirements-style heading continues the same idea
