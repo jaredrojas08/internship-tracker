@@ -52,6 +52,50 @@ class TestEnrich(unittest.TestCase):
             enrich.enrich_all([listing])
         self.assertEqual(listing.category, "Software Engineering")
 
+    def test_enrich_all_survives_a_listing_that_raises_and_still_enriches_the_rest(self):
+        bad = make(apply_url="https://example.com/jobs/bad")
+        good = make(apply_url="https://example.com/jobs/good")
+        good_page = ats.PageData(text="Qualifications\n- Experience with Unity and C#\n", ok=True)
+
+        def fake_fetch(url, session):
+            if url == bad.apply_url:
+                raise RuntimeError("boom")
+            return good_page
+
+        with mock.patch.object(ats, "fetch_page", side_effect=fake_fetch):
+            enrich.enrich_all([bad, good])  # must not raise
+
+        # the listing whose fetch blew up still carries usable defaults
+        self.assertTrue(bad.category)
+        self.assertTrue(bad.resume_keywords)
+        self.assertEqual(bad.skills, [enrich.GENERIC_SKILLS])
+
+        # the other listing in the same batch was fully enriched regardless
+        self.assertIn("Unity", good.skills_cell())
+
+    def test_readable_page_fills_notes_recruiter_and_posted_time(self):
+        text = (
+            "Qualifications\n"
+            "- Experience with Unity and C#\n\n"
+            "This internship pays $25/hour.\n"
+        )
+        html = (
+            "<html><body>"
+            "<p>Contact our campus recruiting team at campus.recruiting@example-studio.com.</p>"
+            '<script type="application/ld+json">{"datePosted": "2026-09-01T12:00:00Z"}</script>'
+            "</body></html>"
+        )
+        page = ats.PageData(text=text, html=html, ok=True)
+        listing = make()
+        with mock.patch.object(ats, "fetch_page", return_value=page):
+            enrich.enrich_all([listing])
+
+        self.assertIn("$25/hour", listing.notes)
+        self.assertEqual(listing.recruiter, "campus.recruiting@example-studio.com")
+        self.assertEqual(listing.posted_precision, "scraped")
+        self.assertEqual((listing.posted_at.year, listing.posted_at.month, listing.posted_at.day),
+                         (2026, 9, 1))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,13 @@ def enrich_all(listings, max_workers=8):
                 future.result()
             except Exception as exc:  # noqa: BLE001 - one bad page must not stop the rest
                 log.warning("enrich failed for %r: %s", listing.role[:50], exc)
+                # _enrich_one may have died before setting category/keywords at all
+                # (e.g. category_for itself raised); a failed listing must still
+                # carry the same three non-empty fields a successful one does.
+                if not listing.category:
+                    listing.category = "Software Engineering"
+                if not listing.resume_keywords:
+                    listing.resume_keywords = list(KEYWORDS_BY_CATEGORY.get(listing.category, []))
                 if not listing.skills:
                     listing.skills = [GENERIC_SKILLS]
     readable = sum(1 for l in listings if l.skills != [GENERIC_SKILLS])
