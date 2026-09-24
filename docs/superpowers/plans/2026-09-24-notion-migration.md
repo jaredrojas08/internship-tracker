@@ -995,7 +995,9 @@ The Sheets path keeps working. Both can run, which is what makes step 2 of the r
 
 **Interfaces:**
 - Consumes: everything from Tasks 1-6
-- Produces: `internship_tracker.run_notion(listings, args) -> int` returning the number of pages written
+- Produces: `internship_tracker.write_to_notion(api, database_id, listings, tombstoned) -> int` returning the number of pages written, and `internship_tracker.backfill(api, database_id, limit=25) -> int` returning the number of rows repaired
+
+`backfill` calls `api.rows_to_backfill(database_id, limit)`, re-fetches each row's posting through `enrich`, and calls `api.update_row` with only the Skill Requirements and Recruiter Contact it recovered. It must never touch Applied, My Resume PDF, Deadline or Notes, and a row it cannot repair is left exactly as it was.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1092,6 +1094,9 @@ In `main`, immediately after `listings, duplicates = sources.deduplicate(listing
         database_id = config.require_env("NOTION_DATABASE_ID")
         api.ensure_schema(database_id)
         write_to_notion(api, database_id, listings, tombstones.load())
+        # Rows whose page was unreachable on an earlier run carry "See posting".
+        # Re-fetch a capped batch of them so a transient failure heals itself.
+        backfill(api, database_id, limit=25)
         # The digest call lands in Task 9, which is where send_digest_if_due
         # is written. Adding it here would raise AttributeError.
         return 0
