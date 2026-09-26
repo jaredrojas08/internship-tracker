@@ -362,3 +362,14 @@ def get_sheet_id():
     if not sheet_id:
         raise RuntimeError("GOOGLE_SHEET_ID is not set.")
     return sheet_id
+
+
+def require_env(name):
+    """Read an environment variable or fail with a message that says what to do."""
+    value = os.environ.get(name, "")
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. Locally: add it to .env. "
+            f"In CI: Settings -> Secrets and variables -> Actions."
+        )
+    return value

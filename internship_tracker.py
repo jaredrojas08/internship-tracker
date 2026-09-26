@@ -10,13 +10,17 @@ import sys
 
 import requests
 
+import ats
 import config
+import enrich
 import linkcheck
 import notify
+import notion_sink
 import parser as md_parser
 import sheets
 import sources
 import styling
+import tombstones
 
 log = logging.getLogger("internship_tracker")
 
@@ -53,8 +57,57 @@ def parse_args(argv=None):
         action="store_true",
         help="skip the daily digest even if a channel is configured",
     )
+    ap.add_argument("--notion", action="store_true",
+                    help="write to the Notion database instead of the sheet")
+    ap.add_argument("--create-database", action="store_true",
+                    help="create the Notion database under NOTION_PARENT_PAGE_ID and print its id")
     ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return ap.parse_args(argv)
+
+
+def write_to_notion(api, database_id, listings, tombstoned):
+    """Append listings Notion does not already hold. Never rewrites a page.
+
+    The "nothing to do" short-circuit is keyed on Notion dedup alone: a batch
+    that is new to Notion but entirely tombstoned still reaches add_all with
+    an empty list, rather than skipping the call outright.
+    """
+    seen = api.existing_job_ids(database_id)
+    new = [l for l in listings if l.job_id not in seen]
+    if not new:
+        log.info("0 new listing(s) for Notion (%d already there)", len(listings))
+        return 0
+    fresh = [l for l in new if l.job_id not in tombstoned]
+    log.info("%d listing(s) already in Notion, %d tombstoned, %d new",
+             len(listings) - len(new), len(new) - len(fresh), len(fresh))
+    return api.add_all(database_id, fresh)
+
+
+def backfill(api, database_id, limit=25):
+    """Repair existing rows whose posting page was unreachable on an earlier run.
+
+    Only Skill Requirements and Recruiter Contact are ever recovered, and only
+    the ones a row is actually missing. A row that still can't be read, or
+    whose posting still has nothing usable, is left exactly as it was.
+    """
+    rows = api.rows_to_backfill(database_id, limit)
+    session = requests.Session()
+    repaired = 0
+    for row in rows:
+        page = ats.fetch_page(row["url"], session)
+        if not page.ok:
+            continue
+        skills = ats.extract_requirements(page.text) if row["needs_skills"] else ""
+        recruiter = ""
+        if row["needs_recruiter"]:
+            markup = page.html or page.text
+            recruiter = ats.extract_contact_email(markup)
+        if not skills and not recruiter:
+            continue
+        api.update_row(row["page_id"], skills=skills, recruiter=recruiter)
+        repaired += 1
+    log.info("backfilled %d/%d flagged row(s)", repaired, len(rows))
+    return repaired
 
 
 def report(new_listings, dropped, total, programs, rows=(), dropped_programs=()):
@@ -112,6 +165,25 @@ def main(argv=None):
 
     listings, duplicates = sources.deduplicate(listings)
     log.info("%d unique listing(s) after removing %d duplicate(s)", len(listings), duplicates)
+
+    if args.create_database:
+        api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
+        print(api.create_database(config.require_env("NOTION_PARENT_PAGE_ID"),
+                                  "Internship Listings"))
+        return 0
+
+    if args.notion:
+        enrich.enrich_all(listings)
+        api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
+        database_id = config.require_env("NOTION_DATABASE_ID")
+        api.ensure_schema(database_id)
+        write_to_notion(api, database_id, listings, tombstones.load())
+        # Rows whose page was unreachable on an earlier run carry "See posting".
+        # Re-fetch a capped batch of them so a transient failure heals itself.
+        backfill(api, database_id, limit=25)
+        # The digest call lands in Task 9, which is where send_digest_if_due
+        # is written. Adding it here would raise AttributeError.
+        return 0
 
     # The programs table only exists on the original source.
     try:
