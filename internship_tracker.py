@@ -94,18 +94,22 @@ def backfill(api, database_id, limit=25):
     session = requests.Session()
     repaired = 0
     for row in rows:
-        page = ats.fetch_page(row["url"], session)
-        if not page.ok:
-            continue
-        skills = ats.extract_requirements(page.text) if row["needs_skills"] else ""
-        recruiter = ""
-        if row["needs_recruiter"]:
-            markup = page.html or page.text
-            recruiter = ats.extract_contact_email(markup)
-        if not skills and not recruiter:
-            continue
-        api.update_row(row["page_id"], skills=skills, recruiter=recruiter)
-        repaired += 1
+        try:
+            page = ats.fetch_page(row["url"], session)
+            if not page.ok:
+                continue
+            skills = ats.extract_requirements(page.text) if row["needs_skills"] else ""
+            recruiter = ""
+            if row["needs_recruiter"]:
+                markup = page.html or page.text
+                recruiter = ats.extract_contact_email(markup)
+            if not skills and not recruiter:
+                continue
+            api.update_row(row["page_id"], skills=skills, recruiter=recruiter)
+            repaired += 1
+        except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
+            log.error("failed to backfill %s (%s): %s", row.get("company", "?"),
+                      row.get("page_id", "?"), exc)
     log.info("backfilled %d/%d flagged row(s)", repaired, len(rows))
     return repaired
 
@@ -150,6 +154,12 @@ def main(argv=None):
     if args.test_notify:
         return 0 if notify.send_test() else 1
 
+    if args.create_database:
+        api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
+        print(api.create_database(config.require_env("NOTION_PARENT_PAGE_ID"),
+                                  "Internship Listings"))
+        return 0
+
     # 1. Fetch and parse every configured source, sharing one download cache
     #    so the programs table doesn't refetch a README already pulled.
     downloads = {}
@@ -165,12 +175,6 @@ def main(argv=None):
 
     listings, duplicates = sources.deduplicate(listings)
     log.info("%d unique listing(s) after removing %d duplicate(s)", len(listings), duplicates)
-
-    if args.create_database:
-        api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
-        print(api.create_database(config.require_env("NOTION_PARENT_PAGE_ID"),
-                                  "Internship Listings"))
-        return 0
 
     if args.notion:
         enrich.enrich_all(listings)

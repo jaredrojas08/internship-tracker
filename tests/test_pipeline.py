@@ -40,9 +40,10 @@ class TestNotionRun(unittest.TestCase):
         api.add_all.assert_not_called()
 
 
-def backfill_row(needs_skills=True, needs_recruiter=True, url="https://x.com/job/1"):
+def backfill_row(needs_skills=True, needs_recruiter=True, url="https://x.com/job/1",
+                  page_id="page-1"):
     return {
-        "page_id": "page-1",
+        "page_id": page_id,
         "url": url,
         "company": "Riot Games",
         "needs_skills": needs_skills,
@@ -115,6 +116,46 @@ class TestBackfill(unittest.TestCase):
         api.rows_to_backfill.return_value = []
         internship_tracker.backfill(api, "db1")
         api.rows_to_backfill.assert_called_once_with("db1", 25)
+
+    def test_one_failing_row_does_not_abandon_the_rest_of_the_batch(self):
+        api = mock.Mock()
+        rows = [
+            backfill_row(page_id="page-1"),
+            backfill_row(page_id="page-2"),
+            backfill_row(page_id="page-3"),
+        ]
+        api.rows_to_backfill.return_value = rows
+
+        def update_row(page_id, skills="", recruiter=""):
+            if page_id == "page-2":
+                raise RuntimeError("Notion PATCH /pages/page-2 -> 500")
+        api.update_row.side_effect = update_row
+
+        page = ats.PageData(
+            text="Requirements\n- Experience with Python programming\n",
+            html="<html>Contact jobs@riotgames.com for more info</html>",
+            ok=True,
+        )
+        with mock.patch("internship_tracker.ats.fetch_page", return_value=page):
+            repaired = internship_tracker.backfill(api, "db1")
+
+        self.assertEqual(repaired, 2)
+        attempted = [call.args[0] for call in api.update_row.call_args_list]
+        self.assertEqual(attempted, ["page-1", "page-2", "page-3"])
+
+
+class TestCreateDatabase(unittest.TestCase):
+    def test_create_database_never_fetches_sources(self):
+        fake_api = mock.Mock()
+        fake_api.create_database.return_value = "db-123"
+        with mock.patch("internship_tracker.notion_sink.Notion", return_value=fake_api), \
+             mock.patch("internship_tracker.config.require_env", return_value="x"), \
+             mock.patch("internship_tracker.sources.fetch_all") as fetch_all:
+            exit_code = internship_tracker.main(["--create-database"])
+
+        self.assertEqual(exit_code, 0)
+        fetch_all.assert_not_called()
+        fake_api.create_database.assert_called_once()
 
 
 if __name__ == "__main__":
