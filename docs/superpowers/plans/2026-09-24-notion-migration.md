@@ -951,11 +951,18 @@ DEFAULT_PATH = Path("removed.json")
 
 
 def load(path=DEFAULT_PATH):
-    """Every tombstoned job id. A missing or unreadable file means none."""
+    """Every tombstoned job id. Anything but a list of strings means none.
+
+    A tombstone that should not be there suppresses a real listing forever
+    with no error, so this refuses to guess at a file it does not recognise.
+    """
     try:
-        return set(json.loads(Path(path).read_text(encoding="utf-8")))
+        parsed = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
+    if not isinstance(parsed, list):
+        return set()
+    return {j for j in parsed if isinstance(j, str) and j}
 
 
 def add(job_ids, path=DEFAULT_PATH):
