@@ -71,16 +71,20 @@ def write_to_notion(api, database_id, listings, tombstoned):
     The "nothing to do" short-circuit is keyed on Notion dedup alone: a batch
     that is new to Notion but entirely tombstoned still reaches add_all with
     an empty list, rather than skipping the call outright.
+
+    Returns the attempted listings rather than add_all's count, since the
+    digest needs to say what is new and add_all only reports how many landed.
     """
     seen = api.existing_job_ids(database_id)
     new = [l for l in listings if l.job_id not in seen]
     if not new:
         log.info("0 new listing(s) for Notion (%d already there)", len(listings))
-        return 0
+        return []
     fresh = [l for l in new if l.job_id not in tombstoned]
     log.info("%d listing(s) already in Notion, %d tombstoned, %d new",
              len(listings) - len(new), len(new) - len(fresh), len(fresh))
-    return api.add_all(database_id, fresh)
+    api.add_all(database_id, fresh)
+    return fresh
 
 
 def backfill(api, database_id, limit=25):
@@ -181,12 +185,16 @@ def main(argv=None):
         api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
         database_id = config.require_env("NOTION_DATABASE_ID")
         api.ensure_schema(database_id)
-        write_to_notion(api, database_id, listings, tombstones.load())
+        new_listings = write_to_notion(api, database_id, listings, tombstones.load())
         # Rows whose page was unreachable on an earlier run carry "See posting".
         # Re-fetch a capped batch of them so a transient failure heals itself.
         backfill(api, database_id, limit=25)
-        # The digest call lands in Task 9, which is where send_digest_if_due
-        # is written. Adding it here would raise AttributeError.
+        # No per-source history for Notion yet, so only outright failures and
+        # zero-count sources surface; a slow shrink needs prior counts, which
+        # only the Sheets state tracks today.
+        health_warnings = sources.assess_health(source_health, {})
+        if not args.no_notify:
+            notify.send_digest_if_due([], new_listings, [], warnings=health_warnings)
         return 0
 
     # The programs table only exists on the original source.

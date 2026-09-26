@@ -19,12 +19,14 @@ import time
 import urllib.error
 import urllib.request
 from email.message import EmailMessage
+from pathlib import Path
 
 import config
 import sheets
 
 log = logging.getLogger(__name__)
 
+DIGEST_STATE_PATH = Path("digest_state.json")
 DISCORD_LIMIT = 1900  # leave headroom under Discord's 2000-character cap
 # A long digest is split across several Discord messages rather than cut off:
 # a listing that is only visible on the sheet may as well not have been sent.
@@ -214,6 +216,57 @@ def _date(value):
         return dt.date.fromisoformat(str(value).strip())
     except (ValueError, AttributeError):
         return None
+
+
+# --- Cadence ----------------------------------------------------------------
+
+
+def digest_is_due(path, as_of=None):
+    """True once a day has passed since the last digest, or none has ever sent.
+
+    A missing or corrupt state file counts as due rather than raising: the
+    scrape runs hourly now, so a swallowed error here would go silent for good
+    instead of just sending one digest too many.
+    """
+    as_of = as_of or dt.datetime.now(dt.timezone.utc)
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    if not isinstance(data, dict):
+        return True
+    last_sent = data.get("last_sent")
+    if not isinstance(last_sent, str):
+        return True
+    try:
+        sent_at = dt.datetime.fromisoformat(last_sent)
+    except ValueError:
+        return True
+    return as_of - sent_at >= dt.timedelta(hours=24)
+
+
+def _mark_sent(path, as_of):
+    Path(path).write_text(json.dumps({"last_sent": as_of.isoformat()}), encoding="utf-8")
+
+
+def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGEST_STATE_PATH, as_of=None):
+    """Build and send the digest, but only once a day now that runs are hourly.
+
+    Source-failure warnings skip the gate and send right away: a broken source
+    is the one thing worth interrupting for, and the digest's silence is
+    supposed to mean nothing needs attention.
+    """
+    as_of = as_of or dt.datetime.now(dt.timezone.utc)
+    if not warnings and not digest_is_due(state_path, as_of):
+        log.info("Digest already sent within the last day; skipping.")
+        return False
+
+    digest = build_digest(rows, new_listings, dropped, warnings=warnings)
+    if not digest:
+        return False
+    send(*digest)
+    _mark_sent(state_path, as_of)
+    return True
 
 
 # --- Delivery --------------------------------------------------------------
