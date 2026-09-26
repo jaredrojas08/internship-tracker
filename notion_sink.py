@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import requests
 
@@ -210,17 +210,21 @@ class Notion:
         log.info("%d existing rows could be backfilled", len(out))
         return out
 
-    def rows_for_digest(self, database_id: str) -> List[dict]:
-        """Rows a digest could act on, shaped like a Sheets row for build_digest.
+    def rows_for_digest(self, database_id: str) -> Tuple[List[dict], int, int]:
+        """Rows a digest could act on, plus the real database-wide totals.
 
-        Included if there's a Deadline (the "coming up" section) or the row is
-        Applied (the follow-up section needs Applied Date regardless of
-        whether a deadline was ever published). Link Status has no Notion
-        equivalent -- link checking isn't part of this design -- so the
-        "closed after applying" section is left to degrade to empty rather
-        than being faked here.
+        Returns (rows, total_count, applied_count). Only Deadline-or-Applied
+        rows come back in `rows` -- enough for the "coming up" and follow-up
+        sections -- but the summary line ("N open * M applied") needs the true
+        counts across the whole database, not just this filtered slice, and
+        this method already pages through every row to build `rows`, so
+        counting costs nothing extra. Link Status has no Notion equivalent --
+        link checking isn't part of this design -- so nothing here is ever
+        "closed"; every row counts as open.
         """
         out: List[dict] = []
+        total = 0
+        applied_count = 0
         cursor: Optional[str] = None
         while True:
             body = {"page_size": 100}
@@ -231,6 +235,9 @@ class Notion:
                 props = row.get("properties", {})
                 deadline = (props.get(P_DEADLINE, {}).get("date") or {}).get("start", "")
                 applied = props.get(P_APPLIED, {}).get("select", {}).get("name", "")
+                total += 1
+                if applied == "Applied":
+                    applied_count += 1
                 if not deadline and applied != "Applied":
                     continue
                 out.append({
@@ -243,7 +250,7 @@ class Notion:
             if not page.get("has_more"):
                 break
             cursor = page.get("next_cursor")
-        return out
+        return out, total, applied_count
 
     def rows_missing_applied_date(self, database_id: str) -> List[dict]:
         """Pages marked Applied that have never had Applied Date stamped.

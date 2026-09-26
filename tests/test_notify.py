@@ -135,5 +135,22 @@ class TestFollowUpFromNotionShapedRows(unittest.TestCase):
         self.assertIn("Riot Games", body)
 
 
+class TestSummaryLineTotals(unittest.TestCase):
+    def test_summary_line_uses_totals_not_the_filtered_subset_size(self):
+        # `rows` here is a stand-in for rows_for_digest's filtered slice: one
+        # row, but the real database (per `totals`) holds far more. The line
+        # must report the database's numbers, never len(rows).
+        row = {
+            "Company": "Riot Games",
+            "Role": "Gameplay Intern",
+            "Deadline": "2026-10-01",
+            "Application": "Not applied",
+        }
+        _subject, body = notify.build_digest(
+            [row], [], [], as_of=date(2026, 9, 26), totals=(745, 62)
+        )
+        self.assertIn("745 open · 62 applied", body)
+
+
 if __name__ == "__main__":
     unittest.main()

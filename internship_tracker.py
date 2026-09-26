@@ -211,8 +211,11 @@ def main(argv=None):
         # only the Sheets state tracks today.
         health_warnings = sources.assess_health(source_health, {})
         if not args.no_notify:
-            rows = api.rows_for_digest(database_id)
-            notify.send_digest_if_due(rows, new_listings, [], warnings=health_warnings)
+            rows, total_count, applied_count = api.rows_for_digest(database_id)
+            notify.send_digest_if_due(
+                rows, new_listings, [], warnings=health_warnings,
+                totals=(total_count, applied_count),
+            )
         return 0
 
     # The programs table only exists on the original source.

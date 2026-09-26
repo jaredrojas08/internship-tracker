@@ -60,11 +60,16 @@ def needs_follow_up(row, as_of=None):
     return (as_of - applied).days >= config.FOLLOW_UP_AFTER_DAYS
 
 
-def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
+def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=None):
     """Return (subject, body) summarising what needs attention, or None.
 
     Returns None when there is nothing actionable, so a quiet day sends no
     message rather than a daily "nothing happened" that trains you to ignore it.
+
+    `totals`, when given, is (open_roles, total_applied) computed over the
+    whole database rather than just `rows`. Pass it whenever `rows` is a
+    filtered subset -- the Notion path always is -- since the summary line
+    must never state a count `rows` cannot actually back up.
     """
     as_of = as_of or config.today()
 
@@ -104,7 +109,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     if not (new_listings or follow_ups or dead_applied or soon or warnings):
         if not config.NOTIFY_ON_QUIET_DAYS:
             return None
-        return _quiet_digest(rows, as_of)
+        return _quiet_digest(rows, as_of, totals=totals)
 
     parts = []
 
@@ -153,8 +158,11 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     if dropped:
         parts.append(f"🗑️ Removed {len(dropped)} listing(s) you unchecked.")
 
-    total_applied = sum(1 for r in rows if is_applied(r))
-    open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
+    if totals is not None:
+        open_roles, total_applied = totals
+    else:
+        total_applied = sum(1 for r in rows if is_applied(r))
+        open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
     parts.append(f"{open_roles} open · {total_applied} applied")
 
     # Games are counted separately in the headline, so pass only the remainder
@@ -165,15 +173,18 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     return headline, "\n\n".join(parts)
 
 
-def _quiet_digest(rows, as_of):
+def _quiet_digest(rows, as_of, totals=None):
     """One line confirming the run happened and found nothing new.
 
     Deliberately terse and visually distinct from a real digest, so it can be
     dismissed at a glance — but present, so silence unambiguously means the run
     failed rather than that nothing happened.
     """
-    applied = sum(1 for r in rows if is_applied(r))
-    open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
+    if totals is not None:
+        open_roles, applied = totals
+    else:
+        applied = sum(1 for r in rows if is_applied(r))
+        open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
 
     upcoming = []
     for row in rows:
@@ -274,7 +285,8 @@ def _mark_sent(path, as_of):
     Path(path).write_text(json.dumps({"last_sent": as_of.isoformat()}), encoding="utf-8")
 
 
-def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGEST_STATE_PATH, as_of=None):
+def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGEST_STATE_PATH,
+                        as_of=None, totals=None):
     """Build and send the digest, but only once a day now that runs are hourly.
 
     Source-failure warnings skip the gate and send right away: a broken source
@@ -286,7 +298,7 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
         log.info("Digest already sent within the last day; skipping.")
         return False
 
-    digest = build_digest(rows, new_listings, dropped, warnings=warnings)
+    digest = build_digest(rows, new_listings, dropped, warnings=warnings, totals=totals)
     if not digest:
         return False
     delivered = send(*digest)

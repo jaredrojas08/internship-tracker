@@ -220,12 +220,16 @@ class TestRowsForDigest(unittest.TestCase):
         neither = _digest_row("Acme", "SWE Intern")
         api.responses = [{"results": [with_deadline, neither], "has_more": False}]
 
-        rows = api.rows_for_digest("db1")
+        rows, total, applied_count = api.rows_for_digest("db1")
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Company"], "Riot Games")
         self.assertEqual(rows[0]["Role"], "Gameplay Intern")
         self.assertEqual(rows[0]["Deadline"], "2026-10-01")
+        # Both rows count toward the totals even though "neither" is filtered
+        # out of `rows`: the summary line must reflect the whole database.
+        self.assertEqual(total, 2)
+        self.assertEqual(applied_count, 0)
 
     def test_applied_row_without_a_deadline_is_still_included(self):
         # Only a few percent of postings publish a machine-readable deadline,
@@ -235,7 +239,7 @@ class TestRowsForDigest(unittest.TestCase):
                           applied_date="2026-08-01")
         api.responses = [{"results": [row], "has_more": False}]
 
-        rows = api.rows_for_digest("db1")
+        rows, _total, _applied_count = api.rows_for_digest("db1")
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Applied Date"], "2026-08-01")
@@ -245,7 +249,7 @@ class TestRowsForDigest(unittest.TestCase):
         row = _digest_row("Riot Games", "Gameplay Intern", deadline="2026-10-01", applied="Applied")
         api.responses = [{"results": [row], "has_more": False}]
 
-        rows = api.rows_for_digest("db1")
+        rows, _total, _applied_count = api.rows_for_digest("db1")
 
         self.assertEqual(rows[0]["Application"], "Applied")
 
@@ -259,10 +263,30 @@ class TestRowsForDigest(unittest.TestCase):
         page_two = {"results": [_digest_row("B", "Role B", deadline="2026-11-01")], "has_more": False}
         api.responses = [page_one, page_two]
 
-        rows = api.rows_for_digest("db1")
+        rows, _total, _applied_count = api.rows_for_digest("db1")
 
         self.assertEqual({r["Company"] for r in rows}, {"A", "B"})
         self.assertEqual(api.calls[1][2]["start_cursor"], "cursor-xyz")
+
+    def test_totals_count_the_whole_database_across_pages(self):
+        api = FakeNotion()
+        page_one = {
+            "results": [
+                _digest_row("A", "Role A", deadline="2026-10-01"),
+                _digest_row("B", "Role B", applied="Applied", applied_date="2026-08-01"),
+            ],
+            "has_more": True,
+            "next_cursor": "cursor-xyz",
+        }
+        # Not returned in `rows` (no deadline, not applied) but still counted.
+        page_two = {"results": [_digest_row("C", "Role C")], "has_more": False}
+        api.responses = [page_one, page_two]
+
+        rows, total, applied_count = api.rows_for_digest("db1")
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(total, 3)
+        self.assertEqual(applied_count, 1)
 
 
 def _applied_row(page_id, applied="", has_date=False):
