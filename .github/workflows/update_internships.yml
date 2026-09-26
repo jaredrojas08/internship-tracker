@@ -2,9 +2,8 @@ name: Update Internship Listings
 
 on:
   schedule:
-    # 18:00 UTC daily = 2 PM ET during EDT, 1 PM ET during EST.
-    # GitHub's scheduler is best-effort and can lag under load.
-    - cron: '0 18 * * *'
+    # Hourly at :20. GitHub's scheduler is best-effort and can lag under load.
+    - cron: '20 * * * *'
   workflow_dispatch:
     inputs:
       test_notify:
@@ -12,9 +11,9 @@ on:
         type: boolean
         default: false
 
-# The job only reads the repo; all state lives in the Google Sheet.
+# The job commits removed.json and digest_state.json back to the branch.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   update:
@@ -38,6 +37,8 @@ jobs:
         env:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           # Digest delivery. Set whichever you want; unset means no digest,
           # and the run works normally either way.
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -50,5 +51,26 @@ jobs:
           if [ "${{ inputs.test_notify }}" = "true" ]; then
             python internship_tracker.py --test-notify
           else
-            python internship_tracker.py
+            python internship_tracker.py --notion
           fi
+
+      - name: Commit updated state files
+        run: |
+          set -euo pipefail
+          # Commits are authored as Jared: this is his automation acting on his
+          # own repo, and the message makes the automation explicit.
+          git config user.name "jaredrojas08"
+          git config user.email "jaredrojas08@gmail.com"
+
+          # digest_state.json only exists once a digest has fired; guard the add.
+          for f in removed.json digest_state.json; do
+            [ -f "$f" ] && git add "$f"
+          done
+
+          if git diff --cached --quiet; then
+            echo "Nothing changed; skipping commit."
+            exit 0
+          fi
+
+          git commit -m "chore: update tracker state"
+          git push
