@@ -23,8 +23,8 @@ def load(path=DEFAULT_PATH):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(data, list):
             return set()
-        return {item for item in data if isinstance(item, str)}
-    except Exception:
+        return {item for item in data if isinstance(item, str) and item}
+    except (OSError, ValueError):
         return set()
 
 

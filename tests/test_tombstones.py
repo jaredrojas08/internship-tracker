@@ -63,6 +63,10 @@ class TestTombstones(unittest.TestCase):
         self.path.write_text("[]")
         self.assertEqual(tombstones.load(self.path), set())
 
+    def test_list_with_empty_string_filters_it_out(self):
+        self.path.write_text('[""]')
+        self.assertEqual(tombstones.load(self.path), set())
+
 
 if __name__ == "__main__":
     unittest.main()
