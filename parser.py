@@ -50,6 +50,7 @@ class Listing:
     recruiter: str = ""
     notes: str = ""
     deadline: str = ""            # ISO date, user-owned once written
+    applied: str = ""             # Notion's Applied select name; "" means "Not applied"
 
     # Lists that syndicate the same few hundred well-known postings. A listing
     # none of them carried came from a smaller board, which is the interesting

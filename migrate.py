@@ -50,6 +50,21 @@ def _first_seen(date_added):
     return parsed, "first_seen"
 
 
+def _iso_date(value):
+    """Return value if it parses as an ISO calendar date, else None.
+
+    Several hand-typed Deadline cells read "rolling" or "check site" instead of
+    a date. Notion's date property requires ISO 8601, and a free-text value
+    sent through unchecked 400s the whole page write.
+    """
+    value = (value or "").strip()
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
+
+
 def rows_to_listings(rows):
     """Convert Internship Listings rows (sheet column names, not sheets.py's
     reshaped keys) into Listing objects ready for notion_sink.
@@ -70,6 +85,16 @@ def rows_to_listings(rows):
 
         posted_at, precision = _first_seen(row.get("Date Added", ""))
         applied_date = row.get("Applied Date", "").strip()
+        raw_deadline = row.get("Deadline", "").strip()
+        deadline = _iso_date(raw_deadline) or ""
+
+        # Notion has no separate applied-date column, and a non-ISO deadline has
+        # no date column to go in either; both fold into Notes when present.
+        notes_parts = []
+        if applied_date:
+            notes_parts.append(f"Applied {applied_date}")
+        if raw_deadline and not deadline:
+            notes_parts.append(f"Deadline: {raw_deadline}")
 
         listing = md_parser.Listing(
             company=company,
@@ -79,16 +104,13 @@ def rows_to_listings(rows):
             source=row.get("Source", "").strip(),
             salary=row.get("Salary", "").strip(),
             from_game_studio=row.get("Game?", "").strip().upper() == "YES",
-            deadline=row.get("Deadline", "").strip(),
+            deadline=deadline,
             posted_at=posted_at,
             posted_precision=precision,
-            # Notion has no separate applied-date column; fold it into Notes.
-            notes=f"Applied {applied_date}" if applied_date else "",
+            notes="; ".join(notes_parts),
+            applied=_applied_label(row.get("Application", "")),
         )
         listing.category = enrich.category_for(listing)
-        # Listing has no Applied field of its own; only migration needs to carry
-        # forward real Applied history, so it rides along as a plain attribute.
-        listing.applied = _applied_label(row.get("Application", ""))
         listings.append(listing)
     return listings
 
@@ -111,19 +133,29 @@ def programs_to_listings(rows):
             continue
 
         posted_at, precision = _first_seen(row.get("Date Added", ""))
+        raw_deadline = row.get("Deadline", "").strip()
+        deadline = _iso_date(raw_deadline) or ""
+        type_ = row.get("Type", "").strip()
+
+        notes_parts = []
+        if type_:
+            notes_parts.append(type_)
+        if raw_deadline and not deadline:
+            notes_parts.append(f"Deadline: {raw_deadline}")
+
         listing = md_parser.Listing(
             company=org,
             role=opportunity,
             location="",
             apply_url=link,
             source="programs",
-            deadline=row.get("Deadline", "").strip(),
+            deadline=deadline,
             posted_at=posted_at,
             posted_precision=precision,
-            notes=row.get("Type", "").strip(),
+            notes="; ".join(notes_parts),
+            applied="Applied" if row.get("Applied?", "") in sheets.TRUTHY else "Not applied",
         )
         listing.category = "Program / Fellowship"
-        listing.applied = "Applied" if row.get("Applied?", "") in sheets.TRUTHY else "Not applied"
         listings.append(listing)
     return listings
 
@@ -144,16 +176,19 @@ def _sheet_rows(worksheet):
 def write_all(api, database_id, listings, seen):
     """Create a page for each listing Notion does not already hold.
 
-    One bad row must not lose the rest, so a single failure is logged and
-    skipped rather than aborting the batch.
+    `seen` is updated as rows are written, not just read once up front, so two
+    rows sharing a job_id in the same batch are not both written. One bad row
+    must not lose the rest, so a single failure is logged and skipped rather
+    than aborting the batch.
     """
     written = 0
     for listing in listings:
         if listing.job_id in seen:
             continue
         try:
-            api.add(database_id, listing, applied=getattr(listing, "applied", "Not applied"))
+            api.add(database_id, listing)
             written += 1
+            seen.add(listing.job_id)
         except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
             log.error("failed to migrate %r (%s): %s", listing.role[:50], listing.job_id, exc)
         time.sleep(0.35)  # stay under Notion's ~3 req/s ceiling
