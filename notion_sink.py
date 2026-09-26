@@ -221,7 +221,7 @@ class Notion:
             return
         self._call("PATCH", f"/pages/{page_id}", json={"properties": props})
 
-    def add(self, database_id: str, listing) -> None:
+    def add(self, database_id: str, listing, applied: str = "Not applied") -> None:
         def rt(value: str) -> dict:
             return {"rich_text": [{"type": "text", "text": {"content": value[:2000]}}]} if value else {"rich_text": []}
 
@@ -243,7 +243,7 @@ class Notion:
             P_KEYWORDS: {"multi_select": [
                 {"name": k.replace(",", " ")[:100]} for k in listing.resume_keywords[:25]
             ]},
-            P_APPLIED: {"select": {"name": "Not applied"}},
+            P_APPLIED: {"select": {"name": applied}},
             P_NOTES: rt(listing.notes),
         }
         if listing.category:
