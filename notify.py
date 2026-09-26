@@ -22,7 +22,6 @@ from email.message import EmailMessage
 from pathlib import Path
 
 import config
-import sheets
 
 log = logging.getLogger(__name__)
 
@@ -40,13 +39,34 @@ DISCORD_SEND_PAUSE = 0.5  # seconds between messages; webhooks allow ~5/sec
 USER_AGENT = "InternshipTracker (https://github.com/jaredrojas08/Internship-Tracker, 1.0)"
 
 
+def is_applied(row):
+    return row.get("Application") == "Applied"
+
+
+def needs_follow_up(row, as_of=None):
+    """True for an application submitted long enough ago to be worth chasing.
+
+    Rows whose link has since gone DEAD or CLOSED are excluded -- those aren't
+    waiting on a reply, they're over.
+    """
+    if not is_applied(row):
+        return False
+    if row.get("Link Status") in ("DEAD", "CLOSED"):
+        return False
+    applied = _date(row.get("Applied Date"))
+    if applied is None:
+        return False
+    as_of = as_of or config.today()
+    return (as_of - applied).days >= config.FOLLOW_UP_AFTER_DAYS
+
+
 def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     """Return (subject, body) summarising what needs attention, or None.
 
     Returns None when there is nothing actionable, so a quiet day sends no
     message rather than a daily "nothing happened" that trains you to ignore it.
     """
-    as_of = as_of or sheets.today()
+    as_of = as_of or config.today()
 
     # A listing can arrive already dead: upstream edits a row, its identity key
     # changes, and it re-enters as "new" even though the posting is gone. Those
@@ -66,16 +86,16 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
             len(suppressed),
         )
 
-    follow_ups = [r for r in rows if sheets.needs_follow_up(r, as_of)]
+    follow_ups = [r for r in rows if needs_follow_up(r, as_of)]
     dead_applied = [
         r
         for r in rows
-        if sheets.is_applied(r) and r.get("Link Status") in ("DEAD", "CLOSED")
+        if is_applied(r) and r.get("Link Status") in ("DEAD", "CLOSED")
     ]
     soon = []
     for row in rows:
         due = _date(row.get("Deadline"))
-        if due and 0 <= (due - as_of).days <= 14 and not sheets.is_applied(row):
+        if due and 0 <= (due - as_of).days <= 14 and not is_applied(row):
             soon.append((due, row))
     soon.sort(key=lambda pair: pair[0])
 
@@ -133,7 +153,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=()):
     if dropped:
         parts.append(f"🗑️ Removed {len(dropped)} listing(s) you unchecked.")
 
-    total_applied = sum(1 for r in rows if sheets.is_applied(r))
+    total_applied = sum(1 for r in rows if is_applied(r))
     open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
     parts.append(f"{open_roles} open · {total_applied} applied")
 
@@ -152,13 +172,13 @@ def _quiet_digest(rows, as_of):
     dismissed at a glance — but present, so silence unambiguously means the run
     failed rather than that nothing happened.
     """
-    applied = sum(1 for r in rows if sheets.is_applied(r))
+    applied = sum(1 for r in rows if is_applied(r))
     open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
 
     upcoming = []
     for row in rows:
         due = _date(row.get("Deadline"))
-        if due and due >= as_of and not sheets.is_applied(row):
+        if due and due >= as_of and not is_applied(row):
             upcoming.append((due, row))
     upcoming.sort(key=lambda pair: pair[0])
 

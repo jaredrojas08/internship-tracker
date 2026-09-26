@@ -118,6 +118,20 @@ def backfill(api, database_id, limit=25):
     return repaired
 
 
+def stamp_applied_dates(api, database_id, as_of=None):
+    """Record when a row was first seen as Applied. Never rewritten after that.
+
+    Matches the Sheets version's behaviour: flipping Applied back and forth by
+    accident must not destroy the record of when the application went out.
+    """
+    as_of = as_of or config.today()
+    rows = api.rows_missing_applied_date(database_id)
+    for row in rows:
+        api.stamp_applied_date(row["page_id"], as_of.isoformat())
+    log.info("stamped Applied Date on %d row(s)", len(rows))
+    return len(rows)
+
+
 def report(new_listings, dropped, total, programs, rows=(), dropped_programs=()):
     log.info("-" * 60)
     log.info("%d listing(s) on the sheet after this run", total)
@@ -189,6 +203,9 @@ def main(argv=None):
         # Rows whose page was unreachable on an earlier run carry "See posting".
         # Re-fetch a capped batch of them so a transient failure heals itself.
         backfill(api, database_id, limit=25)
+        # Stamp before the digest is built, so a row marked Applied this run
+        # already carries its date when the follow-up section is computed.
+        stamp_applied_dates(api, database_id)
         # No per-source history for Notion yet, so only outright failures and
         # zero-count sources surface; a slow shrink needs prior counts, which
         # only the Sheets state tracks today.

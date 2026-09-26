@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -106,6 +106,33 @@ class TestSendDigestIfDue(unittest.TestCase):
             )
         self.assertFalse(sent)
         self.assertFalse(self.path.exists())
+
+
+class TestFollowUpFromNotionShapedRows(unittest.TestCase):
+    """Notion's rows_for_digest never sets Deadline for an applied-only row,
+    so these prove the follow-up section works from that shape directly.
+    """
+
+    def notion_row(self, applied_date, deadline=""):
+        return {
+            "Company": "Riot Games",
+            "Role": "Gameplay Intern",
+            "Deadline": deadline,
+            "Application": "Applied",
+            "Applied Date": applied_date,
+        }
+
+    def test_needs_follow_up_fires_with_no_deadline_on_the_row(self):
+        row = self.notion_row(applied_date="2026-08-01")
+        self.assertTrue(notify.needs_follow_up(row, date(2026, 9, 26)))
+
+    def test_build_digest_surfaces_the_follow_up_from_a_notion_row(self):
+        row = self.notion_row(applied_date="2026-08-01")
+        digest = notify.build_digest([row], [], [], as_of=date(2026, 9, 26))
+        self.assertIsNotNone(digest)
+        _subject, body = digest
+        self.assertIn("no reply after", body)
+        self.assertIn("Riot Games", body)
 
 
 if __name__ == "__main__":

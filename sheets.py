@@ -16,6 +16,7 @@ from google.oauth2.service_account import Credentials
 
 import config
 import styling
+from config import today
 
 log = logging.getLogger(__name__)
 
@@ -25,10 +26,6 @@ SCOPES = [
 ]
 
 TRUTHY = {"TRUE", "true", "True", True, "YES", "yes", "1"}
-
-
-def today():
-    return dt.date.today()
 
 
 def _parse_date(value):
@@ -178,27 +175,6 @@ def read_listing_state(worksheet):
             "remove": cell("Remove?") in TRUTHY,
         }
     return state
-
-
-def is_applied(row):
-    return row.get("Application") == "Applied"
-
-
-def needs_follow_up(row, as_of=None):
-    """True for an application submitted long enough ago to be worth chasing.
-
-    Rows whose link has since gone DEAD or CLOSED are excluded — those aren't
-    waiting on a reply, they're over.
-    """
-    if not is_applied(row):
-        return False
-    if row.get("Link Status") in ("DEAD", "CLOSED"):
-        return False
-    applied = _parse_date(row.get("Applied Date"))
-    if applied is None:
-        return False
-    as_of = as_of or today()
-    return (as_of - applied).days >= config.FOLLOW_UP_AFTER_DAYS
 
 
 def needs_link_check(existing, as_of=None):

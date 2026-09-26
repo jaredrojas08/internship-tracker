@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest import mock
 
 import ats
@@ -142,6 +143,29 @@ class TestBackfill(unittest.TestCase):
         self.assertEqual(repaired, 2)
         attempted = [call.args[0] for call in api.update_row.call_args_list]
         self.assertEqual(attempted, ["page-1", "page-2", "page-3"])
+
+
+class TestStampAppliedDates(unittest.TestCase):
+    def test_stamps_a_row_seen_applied_for_the_first_time(self):
+        api = mock.Mock()
+        api.rows_missing_applied_date.return_value = [{"page_id": "page-1"}]
+        as_of = date(2026, 9, 26)
+
+        stamped = internship_tracker.stamp_applied_dates(api, "db1", as_of=as_of)
+
+        self.assertEqual(stamped, 1)
+        api.stamp_applied_date.assert_called_once_with("page-1", "2026-09-26")
+
+    def test_a_row_with_nothing_to_stamp_is_left_alone_on_a_later_run(self):
+        # rows_missing_applied_date is the source of truth for "already stamped";
+        # once it stops returning a row, this function must not touch it again.
+        api = mock.Mock()
+        api.rows_missing_applied_date.return_value = []
+
+        stamped = internship_tracker.stamp_applied_dates(api, "db1", as_of=date(2026, 9, 27))
+
+        self.assertEqual(stamped, 0)
+        api.stamp_applied_date.assert_not_called()
 
 
 class TestCreateDatabase(unittest.TestCase):

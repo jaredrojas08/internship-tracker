@@ -1,5 +1,6 @@
 """Environment loading, filter keywords, and sheet configuration."""
 
+import datetime as dt
 import json
 import os
 import re
@@ -7,6 +8,11 @@ import re
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def today():
+    return dt.date.today()
+
 
 # --- Data source -----------------------------------------------------------
 

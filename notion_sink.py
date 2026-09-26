@@ -39,6 +39,7 @@ P_JOB_ID = "Job ID"
 P_NOTES = "Notes"
 P_NICHE = "Niche"
 P_DEADLINE = "Deadline"
+P_APPLIED_DATE = "Applied Date"
 
 APPLIED_OPTIONS = [
     {"name": "Not applied", "color": "default"},
@@ -73,6 +74,9 @@ SCHEMA = {
     # never surfaced.
     P_NICHE: {"checkbox": {}},
     P_DEADLINE: {"date": {}},
+    # Stamped once, the first time a row is seen as Applied. Never rewritten
+    # after that -- see stamp_applied_date and rows_missing_applied_date.
+    P_APPLIED_DATE: {"date": {}},
 }
 
 
@@ -207,12 +211,14 @@ class Notion:
         return out
 
     def rows_for_digest(self, database_id: str) -> List[dict]:
-        """Rows carrying a Deadline, shaped like a Sheets row for build_digest.
+        """Rows a digest could act on, shaped like a Sheets row for build_digest.
 
-        Only Deadline, Applied, Company and Role are read: enough for the
-        "deadline within 14 days" section and nothing that would make the
-        follow-up or dead-applied sections (Sheets-only fields) fire by
-        accident.
+        Included if there's a Deadline (the "coming up" section) or the row is
+        Applied (the follow-up section needs Applied Date regardless of
+        whether a deadline was ever published). Link Status has no Notion
+        equivalent -- link checking isn't part of this design -- so the
+        "closed after applying" section is left to degrade to empty rather
+        than being faked here.
         """
         out: List[dict] = []
         cursor: Optional[str] = None
@@ -224,18 +230,55 @@ class Notion:
             for row in page.get("results", []):
                 props = row.get("properties", {})
                 deadline = (props.get(P_DEADLINE, {}).get("date") or {}).get("start", "")
-                if not deadline:
+                applied = props.get(P_APPLIED, {}).get("select", {}).get("name", "")
+                if not deadline and applied != "Applied":
                     continue
                 out.append({
                     "Company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
                     "Role": _plain_text(props.get(P_TITLE, {}).get("title", [])),
                     "Deadline": deadline,
-                    "Application": props.get(P_APPLIED, {}).get("select", {}).get("name", ""),
+                    "Application": applied,
+                    "Applied Date": (props.get(P_APPLIED_DATE, {}).get("date") or {}).get("start", ""),
                 })
             if not page.get("has_more"):
                 break
             cursor = page.get("next_cursor")
         return out
+
+    def rows_missing_applied_date(self, database_id: str) -> List[dict]:
+        """Pages marked Applied that have never had Applied Date stamped.
+
+        A row that already carries a date is never returned, even if Applied
+        later flips away and back -- the first stamp is permanent.
+        """
+        out: List[dict] = []
+        cursor: Optional[str] = None
+        while True:
+            body = {"page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            for row in page.get("results", []):
+                props = row.get("properties", {})
+                applied = props.get(P_APPLIED, {}).get("select", {}).get("name", "")
+                has_date = bool((props.get(P_APPLIED_DATE, {}).get("date") or {}).get("start"))
+                if applied == "Applied" and not has_date:
+                    out.append({"page_id": row["id"]})
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+        return out
+
+    def stamp_applied_date(self, page_id: str, applied_date: str) -> None:
+        """Set Applied Date. Touches no other property on the page.
+
+        Kept separate from update_row so that method's guarantee -- it can
+        only ever touch Skill Requirements and Recruiter Contact -- stays
+        true and easy to verify.
+        """
+        self._call("PATCH", f"/pages/{page_id}", json={
+            "properties": {P_APPLIED_DATE: {"date": {"start": applied_date}}},
+        })
 
     def update_row(self, page_id: str, skills: str = "", recruiter: str = "") -> None:
         """Patch only Skill Requirements and Recruiter Contact.
