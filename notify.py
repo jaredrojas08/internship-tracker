@@ -240,9 +240,14 @@ def digest_is_due(path, as_of=None):
         return True
     try:
         sent_at = dt.datetime.fromisoformat(last_sent)
-    except ValueError:
+        if sent_at.tzinfo is None:
+            # A naive timestamp could mean any timezone; nothing in this
+            # module ever writes one, so treat it as unusable rather than
+            # guessing which offset was meant.
+            return True
+        return as_of - sent_at >= dt.timedelta(hours=24)
+    except (ValueError, TypeError):
         return True
-    return as_of - sent_at >= dt.timedelta(hours=24)
 
 
 def _mark_sent(path, as_of):
@@ -264,7 +269,11 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
     digest = build_digest(rows, new_listings, dropped, warnings=warnings)
     if not digest:
         return False
-    send(*digest)
+    delivered = send(*digest)
+    if not delivered:
+        # A failed or unconfigured send must not start the 24-hour cooldown:
+        # the next hourly run needs to retry, not go quiet for a day.
+        return False
     _mark_sent(state_path, as_of)
     return True
 

@@ -72,8 +72,9 @@ def write_to_notion(api, database_id, listings, tombstoned):
     that is new to Notion but entirely tombstoned still reaches add_all with
     an empty list, rather than skipping the call outright.
 
-    Returns the attempted listings rather than add_all's count, since the
-    digest needs to say what is new and add_all only reports how many landed.
+    Returns the listings add_all actually wrote, not merely attempted: the
+    digest announces "new" listings from this, and a failed write must never
+    be announced as if it landed.
     """
     seen = api.existing_job_ids(database_id)
     new = [l for l in listings if l.job_id not in seen]
@@ -83,8 +84,7 @@ def write_to_notion(api, database_id, listings, tombstoned):
     fresh = [l for l in new if l.job_id not in tombstoned]
     log.info("%d listing(s) already in Notion, %d tombstoned, %d new",
              len(listings) - len(new), len(new) - len(fresh), len(fresh))
-    api.add_all(database_id, fresh)
-    return fresh
+    return api.add_all(database_id, fresh)
 
 
 def backfill(api, database_id, limit=25):
@@ -194,7 +194,8 @@ def main(argv=None):
         # only the Sheets state tracks today.
         health_warnings = sources.assess_health(source_health, {})
         if not args.no_notify:
-            notify.send_digest_if_due([], new_listings, [], warnings=health_warnings)
+            rows = api.rows_for_digest(database_id)
+            notify.send_digest_if_due(rows, new_listings, [], warnings=health_warnings)
         return 0
 
     # The programs table only exists on the original source.

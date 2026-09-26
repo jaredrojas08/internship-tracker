@@ -206,6 +206,37 @@ class Notion:
         log.info("%d existing rows could be backfilled", len(out))
         return out
 
+    def rows_for_digest(self, database_id: str) -> List[dict]:
+        """Rows carrying a Deadline, shaped like a Sheets row for build_digest.
+
+        Only Deadline, Applied, Company and Role are read: enough for the
+        "deadline within 14 days" section and nothing that would make the
+        follow-up or dead-applied sections (Sheets-only fields) fire by
+        accident.
+        """
+        out: List[dict] = []
+        cursor: Optional[str] = None
+        while True:
+            body = {"page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            page = self._call("POST", f"/databases/{database_id}/query", json=body)
+            for row in page.get("results", []):
+                props = row.get("properties", {})
+                deadline = (props.get(P_DEADLINE, {}).get("date") or {}).get("start", "")
+                if not deadline:
+                    continue
+                out.append({
+                    "Company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
+                    "Role": _plain_text(props.get(P_TITLE, {}).get("title", [])),
+                    "Deadline": deadline,
+                    "Application": props.get(P_APPLIED, {}).get("select", {}).get("name", ""),
+                })
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+        return out
+
     def update_row(self, page_id: str, skills: str = "", recruiter: str = "") -> None:
         """Patch only Skill Requirements and Recruiter Contact.
 
@@ -267,15 +298,20 @@ class Notion:
             "properties": props,
         })
 
-    def add_all(self, database_id: str, listings: Sequence) -> int:
-        """Append listings one by one, surviving individual failures."""
-        written = 0
+    def add_all(self, database_id: str, listings: Sequence) -> List:
+        """Append listings one by one, surviving individual failures.
+
+        Returns the listings that actually landed, not just how many: a
+        caller announcing "new" listings must never include one whose write
+        failed.
+        """
+        written = []
         for listing in listings:
             try:
                 self.add(database_id, listing)
-                written += 1
+                written.append(listing)
             except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
                 log.error("failed to write %r (%s): %s", listing.role[:50], listing.job_id, exc)
             time.sleep(0.35)  # stay under Notion's ~3 req/s ceiling
-        log.info("wrote %d/%d new listings", written, len(listings))
+        log.info("wrote %d/%d new listings", len(written), len(listings))
         return written

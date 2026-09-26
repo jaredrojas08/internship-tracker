@@ -117,8 +117,9 @@ class TestAdd(unittest.TestCase):
                 return super()._call(method, path, **kw)
 
         api = Flaky()
-        written = api.add_all("db1", [make(company="bad"), make(company="Good Co")])
-        self.assertEqual(written, 1)
+        good = make(company="Good Co")
+        written = api.add_all("db1", [make(company="bad"), good])
+        self.assertEqual(written, [good])
 
 
 def _row(page_id, skills="", recruiter="", company="Acme"):
@@ -191,6 +192,58 @@ class TestExistingJobIdsPagination(unittest.TestCase):
 
 def _page_with_job_id(job_id):
     return {"properties": {notion_sink.P_JOB_ID: {"rich_text": [{"plain_text": job_id}]}}}
+
+
+def _digest_row(company, role, deadline="", applied=""):
+    """A minimal query-result row shaped like the real API response."""
+    props = {
+        notion_sink.P_COMPANY: {"rich_text": [{"plain_text": company}]},
+        notion_sink.P_TITLE: {"title": [{"plain_text": role}]},
+    }
+    if deadline:
+        props[notion_sink.P_DEADLINE] = {"date": {"start": deadline}}
+    if applied:
+        props[notion_sink.P_APPLIED] = {"select": {"name": applied}}
+    return {"properties": props}
+
+
+class TestRowsForDigest(unittest.TestCase):
+    def test_only_rows_with_a_deadline_come_back(self):
+        api = FakeNotion()
+        with_deadline = _digest_row("Riot Games", "Gameplay Intern", deadline="2026-10-01")
+        without_deadline = _digest_row("Acme", "SWE Intern")
+        api.responses = [{"results": [with_deadline, without_deadline], "has_more": False}]
+
+        rows = api.rows_for_digest("db1")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Company"], "Riot Games")
+        self.assertEqual(rows[0]["Role"], "Gameplay Intern")
+        self.assertEqual(rows[0]["Deadline"], "2026-10-01")
+
+    def test_applied_name_is_carried_through_for_the_digest_to_check(self):
+        api = FakeNotion()
+        row = _digest_row("Riot Games", "Gameplay Intern", deadline="2026-10-01", applied="Applied")
+        api.responses = [{"results": [row], "has_more": False}]
+
+        rows = api.rows_for_digest("db1")
+
+        self.assertEqual(rows[0]["Application"], "Applied")
+
+    def test_pagination_follows_the_cursor(self):
+        api = FakeNotion()
+        page_one = {
+            "results": [_digest_row("A", "Role A", deadline="2026-10-01")],
+            "has_more": True,
+            "next_cursor": "cursor-xyz",
+        }
+        page_two = {"results": [_digest_row("B", "Role B", deadline="2026-11-01")], "has_more": False}
+        api.responses = [page_one, page_two]
+
+        rows = api.rows_for_digest("db1")
+
+        self.assertEqual({r["Company"] for r in rows}, {"A", "B"})
+        self.assertEqual(api.calls[1][2]["start_cursor"], "cursor-xyz")
 
 
 if __name__ == "__main__":

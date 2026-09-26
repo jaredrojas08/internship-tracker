@@ -3,8 +3,17 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import notify
+import parser as md
+
+
+def make_listing(**kw):
+    base = dict(company="Riot Games", role="Gameplay Programmer Intern",
+                location="LA", apply_url="https://x.com/jobs/1", source="studios")
+    base.update(kw)
+    return md.Listing(**base)
 
 
 class TestDigestCadence(unittest.TestCase):
@@ -30,6 +39,73 @@ class TestDigestCadence(unittest.TestCase):
     def test_corrupt_state_is_treated_as_due(self):
         self.path.write_text("{not json")
         self.assertTrue(notify.digest_is_due(self.path, self.now))
+
+    def test_naive_last_sent_is_treated_as_due(self):
+        # No tzinfo at all -- comparing it against an aware "as_of" used to
+        # raise TypeError instead of degrading to "due".
+        self.path.write_text(json.dumps({"last_sent": "2026-09-24T17:59:00"}))
+        self.assertTrue(notify.digest_is_due(self.path, self.now))
+
+    def test_aware_last_sent_compares_correctly_across_offsets(self):
+        # Same instant as one hour before self.now, just expressed five hours
+        # ahead of UTC, to prove the comparison converts rather than string-matches.
+        five_hours_east = timezone(timedelta(hours=5))
+        sent_at = (self.now - timedelta(hours=1)).astimezone(five_hours_east)
+        self.path.write_text(json.dumps({"last_sent": sent_at.isoformat()}))
+        self.assertFalse(notify.digest_is_due(self.path, self.now))
+
+
+class TestSendDigestIfDue(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "digest_state.json"
+        self.now = datetime(2026, 9, 24, 18, 0, tzinfo=timezone.utc)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_sends_when_due(self):
+        with mock.patch("notify.send", return_value=["discord"]) as fake_send:
+            sent = notify.send_digest_if_due(
+                [], [make_listing()], [], state_path=self.path, as_of=self.now
+            )
+        self.assertTrue(sent)
+        fake_send.assert_called_once()
+
+    def test_does_not_send_when_not_due(self):
+        self.path.write_text(json.dumps({"last_sent": (self.now - timedelta(hours=1)).isoformat()}))
+        with mock.patch("notify.send") as fake_send:
+            sent = notify.send_digest_if_due(
+                [], [make_listing()], [], state_path=self.path, as_of=self.now
+            )
+        self.assertFalse(sent)
+        fake_send.assert_not_called()
+
+    def test_warnings_send_regardless_of_the_daily_gate(self):
+        self.path.write_text(json.dumps({"last_sent": (self.now - timedelta(hours=1)).isoformat()}))
+        with mock.patch("notify.send", return_value=["discord"]) as fake_send:
+            sent = notify.send_digest_if_due(
+                [], [], [], warnings=["speedyapply: FAILED (timeout)"],
+                state_path=self.path, as_of=self.now,
+            )
+        self.assertTrue(sent)
+        fake_send.assert_called_once()
+
+    def test_state_file_is_updated_after_a_successful_send(self):
+        with mock.patch("notify.send", return_value=["discord"]):
+            notify.send_digest_if_due(
+                [], [make_listing()], [], state_path=self.path, as_of=self.now
+            )
+        recorded = json.loads(self.path.read_text())
+        self.assertEqual(recorded["last_sent"], self.now.isoformat())
+
+    def test_state_file_is_not_updated_when_delivery_fails(self):
+        with mock.patch("notify.send", return_value=[]):
+            sent = notify.send_digest_if_due(
+                [], [make_listing()], [], state_path=self.path, as_of=self.now
+            )
+        self.assertFalse(sent)
+        self.assertFalse(self.path.exists())
 
 
 if __name__ == "__main__":
