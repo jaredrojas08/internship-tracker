@@ -2,16 +2,21 @@
 
 One-time, about five minutes. Do steps 1-5 now; step 6 waits until the code exists.
 
-## 1. Create the integration
+## 1. Create the connection
 
-Go to <https://www.notion.so/my-integrations> and click **New integration**.
+Go to <https://www.notion.so/my-integrations>. Notion calls these
+**Connections** now, under Developer tools; older docs say "integration".
 
-- Name: `internship-radar`
-- Type: **Internal**
-- Workspace: yours
+Click **New connection**.
 
-Submit, then click **Show** next to the Internal Integration Secret and copy it.
-It starts with `ntn_`. Older ones start with `secret_`.
+- Connection name: `internship-radar`
+- Authentication method: **API token**
+
+**API token, not OAuth.** API token is workspace-scoped and static, which is
+what an unattended cron job needs. OAuth is user-scoped and expects a browser
+consent flow that a GitHub Actions run cannot complete.
+
+Create it, then copy the token. It starts with `ntn_`.
 
 ## 2. Create the page the database will live on
 
