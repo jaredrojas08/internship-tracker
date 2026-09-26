@@ -35,6 +35,34 @@ class TestTombstones(unittest.TestCase):
         self.path.write_text("{not json")
         self.assertEqual(tombstones.load(self.path), set())
 
+    def test_null_file_loads_as_empty(self):
+        self.path.write_text("null")
+        self.assertEqual(tombstones.load(self.path), set())
+
+    def test_number_file_loads_as_empty(self):
+        self.path.write_text("123")
+        self.assertEqual(tombstones.load(self.path), set())
+
+    def test_dict_file_loads_as_empty(self):
+        self.path.write_text('{"a": 1}')
+        self.assertEqual(tombstones.load(self.path), set())
+
+    def test_string_file_loads_as_empty(self):
+        self.path.write_text('"somestring"')
+        self.assertEqual(tombstones.load(self.path), set())
+
+    def test_number_list_loads_as_empty(self):
+        self.path.write_text("[1, 2, 3]")
+        self.assertEqual(tombstones.load(self.path), set())
+
+    def test_mixed_list_filters_non_strings(self):
+        self.path.write_text('["ok", 5, null]')
+        self.assertEqual(tombstones.load(self.path), {"ok"})
+
+    def test_empty_list_loads_as_empty(self):
+        self.path.write_text("[]")
+        self.assertEqual(tombstones.load(self.path), set())
+
 
 if __name__ == "__main__":
     unittest.main()

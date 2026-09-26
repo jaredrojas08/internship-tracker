@@ -20,8 +20,11 @@ DEFAULT_PATH = Path("removed.json")
 def load(path=DEFAULT_PATH):
     """Every tombstoned job id. A missing or unreadable file means none."""
     try:
-        return set(json.loads(Path(path).read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return set()
+        return {item for item in data if isinstance(item, str)}
+    except Exception:
         return set()
 
 
