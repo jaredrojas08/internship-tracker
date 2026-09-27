@@ -1,5 +1,2 @@
 requests
-gspread
-google-auth
-openpyxl
 python-dotenv

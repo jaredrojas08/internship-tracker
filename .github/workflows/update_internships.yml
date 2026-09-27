@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       test_notify:
-        description: 'Send a test digest and exit (does not touch the sheet)'
+        description: 'Send a test digest and exit (does not touch Notion)'
         type: boolean
         default: false
 
@@ -41,8 +41,6 @@ jobs:
 
       - name: Run internship tracker
         env:
-          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           # Digest delivery. Set whichever you want; unset means no digest,
