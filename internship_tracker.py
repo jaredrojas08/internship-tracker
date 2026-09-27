@@ -38,30 +38,24 @@ def parse_args(argv=None):
                     help="run the pipeline and write to the Notion database")
     ap.add_argument("--create-database", action="store_true",
                     help="create the Notion database under NOTION_PARENT_PAGE_ID and print its id")
+    ap.add_argument("--tombstone", metavar="JOB_ID", nargs="+",
+                    help="record job ids deleted from Notion so they are never re-added")
     ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return ap.parse_args(argv)
 
 
-def write_to_notion(api, database_id, listings, tombstoned):
-    """Append listings Notion does not already hold. Never rewrites a page.
+def select_new(listings, existing, tombstoned):
+    """Listings Notion does not already hold and the user has not tombstoned.
 
-    The "nothing to do" short-circuit is keyed on Notion dedup alone: a batch
-    that is new to Notion but entirely tombstoned still reaches add_all with
-    an empty list, rather than skipping the call outright.
-
-    Returns the listings add_all actually wrote, not merely attempted: the
-    digest announces "new" listings from this, and a failed write must never
-    be announced as if it landed.
+    Runs before enrichment, not after. Enriching first meant fetching all 735
+    postings every hour to write nothing, which is both a month's Actions
+    budget and half a million requests at other people's ATS servers.
     """
-    seen = api.existing_job_ids(database_id)
-    new = [l for l in listings if l.job_id not in seen]
-    if not new:
-        log.info("0 new listing(s) for Notion (%d already there)", len(listings))
-        return []
+    new = [l for l in listings if l.job_id not in existing]
     fresh = [l for l in new if l.job_id not in tombstoned]
     log.info("%d listing(s) already in Notion, %d tombstoned, %d new",
              len(listings) - len(new), len(new) - len(fresh), len(fresh))
-    return api.add_all(database_id, fresh)
+    return fresh
 
 
 def backfill(api, database_id, limit=25):
@@ -119,6 +113,12 @@ def main(argv=None):
     if args.test_notify:
         return 0 if notify.send_test() else 1
 
+    if args.tombstone:
+        added = tombstones.add(args.tombstone)
+        print(f"{added} new tombstone(s); {len(tombstones.load())} total in "
+              f"{tombstones.DEFAULT_PATH}")
+        return 0
+
     if args.create_database:
         api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
         print(api.create_database(config.require_env("NOTION_PARENT_PAGE_ID"),
@@ -145,33 +145,52 @@ def main(argv=None):
     listings, duplicates = sources.deduplicate(listings)
     log.info("%d unique listing(s) after removing %d duplicate(s)", len(listings), duplicates)
 
-    enrich.enrich_all(listings)
-
-    # Appended after enrich_all, not before: enrichment re-derives category
-    # from is_game and re-fetches the apply page, which would overwrite
-    # "Program / Fellowship" and the notes programs_to_listings just set.
+    programs = []
     try:
         markdown = downloads.get(config.README_URL) or md_parser.fetch_readme()
-        listings = listings + md_parser.programs_to_listings(md_parser.parse_programs(markdown))
+        programs = md_parser.programs_to_listings(md_parser.parse_programs(markdown))
     except requests.RequestException as exc:
         log.warning("Could not fetch the programs source; skipping programs this run: %s", exc)
 
-    api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
-    database_id = config.require_env("NOTION_DATABASE_ID")
-    api.ensure_schema(database_id)
-    new_listings = write_to_notion(api, database_id, listings, tombstones.load())
-    # Rows whose page was unreachable on an earlier run carry "See posting".
-    # Re-fetch a capped batch of them so a transient failure heals itself.
-    backfill(api, database_id, limit=25)
-    # Stamp before the digest is built, so a row marked Applied this run
-    # already carries its date when the follow-up section is computed.
-    stamp_applied_dates(api, database_id)
     # No per-source history tracked for Notion, so only outright failures and
     # zero-count sources surface; a slow shrink needs prior counts, and
     # nothing records those any more.
     health_warnings = sources.assess_health(source_health, {})
-    if not args.no_notify:
-        rows, total_count, applied_count = api.rows_for_digest(database_id)
+
+    try:
+        api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
+        database_id = config.require_env("NOTION_DATABASE_ID")
+        api.ensure_schema(database_id)
+        existing = api.existing_job_ids(database_id)
+        tombstoned = tombstones.load()
+
+        # Only new postings are fetched, so each one is fetched exactly once
+        # over its lifetime rather than once an hour for as long as it is up.
+        fresh = select_new(listings, existing, tombstoned)
+        enrich.enrich_all(fresh)
+
+        # Programs skip enrichment: it re-derives category from is_game and
+        # re-fetches the apply page, which would overwrite "Program /
+        # Fellowship" and the notes programs_to_listings just set.
+        fresh = fresh + select_new(programs, existing, tombstoned)
+        enrich.stamp_first_seen(fresh)
+
+        new_listings = api.add_all(database_id, fresh)
+        # Rows whose page was unreachable on an earlier run carry "See posting".
+        # Re-fetch a capped batch of them so a transient failure heals itself.
+        backfill(api, database_id, limit=25)
+        # Stamp before the digest is built, so a row marked Applied this run
+        # already carries its date when the follow-up section is computed.
+        stamp_applied_dates(api, database_id)
+        digest_rows = api.rows_for_digest(database_id) if not args.no_notify else None
+    except Exception as exc:  # noqa: BLE001 - the alert is the whole point
+        log.error("Notion sync failed: %s", exc)
+        notify.send("Internship tracker: Notion sync failed",
+                    f"🚨 **The run stopped before writing.**\n{exc}")
+        return 1
+
+    if digest_rows is not None:
+        rows, total_count, applied_count = digest_rows
         notify.send_digest_if_due(
             rows, new_listings, [], warnings=health_warnings,
             totals=(total_count, applied_count),

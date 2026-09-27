@@ -8,6 +8,7 @@ inferred from the role, and the cell says so.
 from __future__ import annotations
 
 import concurrent.futures
+import datetime as dt
 import logging
 
 import requests
@@ -68,14 +69,26 @@ def enrich_all(listings, max_workers=8):
                 # (e.g. category_for itself raised); a failed listing must still
                 # carry the same three non-empty fields a successful one does.
                 if not listing.category:
-                    try:
-                        listing.category = category_for(listing)
-                    except Exception:  # noqa: BLE001 - from_game_studio is a plain bool, never raises
-                        listing.category = ("Game Programming" if listing.from_game_studio
-                                            else "Software Engineering")
+                    # category_for is what raised, so read the plain bool instead
+                    # of calling it again on the same input.
+                    listing.category = ("Game Programming" if listing.from_game_studio
+                                        else "Software Engineering")
                 if not listing.resume_keywords:
                     listing.resume_keywords = list(KEYWORDS_BY_CATEGORY.get(listing.category, []))
                 if not listing.skills:
                     listing.skills = [GENERIC_SKILLS]
     readable = sum(1 for l in listings if l.skills != [GENERIC_SKILLS])
     log.info("enriched %d/%d listing(s) from their posting page", readable, len(listings))
+
+
+def stamp_first_seen(listings, now=None):
+    """Third rung of the posting-date ladder: date a listing to the run that saw it.
+
+    Only fills a gap. A scraped or commit estimate always wins, and without
+    this a listing whose page could not be read reaches Notion with a blank
+    Posted, which blanks the Hours Since Posted column the Recent view sorts on.
+    """
+    now = now or dt.datetime.now(dt.timezone.utc)
+    for listing in listings:
+        if not listing.posted_at:
+            listing.posted_at, listing.posted_precision = now, "first_seen"

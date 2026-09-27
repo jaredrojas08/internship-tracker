@@ -3,6 +3,7 @@ from datetime import date
 from unittest import mock
 
 import ats
+import enrich
 import internship_tracker
 import parser as md
 
@@ -15,30 +16,158 @@ def make(job_url, **kw):
     return md.Listing(**base)
 
 
-class TestNotionRun(unittest.TestCase):
+class TestSelectNew(unittest.TestCase):
     def test_skips_listings_already_in_the_database(self):
         listings = [make("https://x.com/jobs/1111111"), make("https://x.com/jobs/2222222")]
-        api = mock.Mock()
-        api.existing_job_ids.return_value = {listings[0].job_id}
-        api.add_all.return_value = 1
-        internship_tracker.write_to_notion(api, "db1", listings, tombstoned=set())
-        written = api.add_all.call_args[0][1]
-        self.assertEqual([l.job_id for l in written], [listings[1].job_id])
+        fresh = internship_tracker.select_new(listings, {listings[0].job_id}, set())
+        self.assertEqual([l.job_id for l in fresh], [listings[1].job_id])
 
     def test_skips_tombstoned_listings(self):
         listings = [make("https://x.com/jobs/1111111")]
-        api = mock.Mock()
-        api.existing_job_ids.return_value = set()
-        internship_tracker.write_to_notion(api, "db1", listings,
-                                           tombstoned={listings[0].job_id})
-        self.assertEqual(api.add_all.call_args[0][1], [])
+        self.assertEqual(
+            internship_tracker.select_new(listings, set(), {listings[0].job_id}), []
+        )
 
-    def test_nothing_new_makes_no_write_call(self):
-        listings = [make("https://x.com/jobs/1111111")]
+    def test_everything_is_new_against_an_empty_database(self):
+        listings = [make("https://x.com/jobs/1111111"), make("https://x.com/jobs/2222222")]
+        self.assertEqual(internship_tracker.select_new(listings, set(), set()), listings)
+
+
+PROGRAMS_MARKDOWN = """
+## programs open now
+
+| Organization | Opportunity | Type | Deadline |
+|---|---|---|---|
+| MLT | [Career Prep](https://mlt.org/apply) | Fellowship | Rolling |
+"""
+
+
+class TestMainRun(unittest.TestCase):
+    """A full --notion run against fakes. Nothing here touches the network.
+
+    These pin the two things the enrich-before-write reorder made fragile: a
+    program row must keep its own category, and a posting Notion already holds
+    must never be fetched again.
+    """
+
+    def run_main(self, listings, existing, argv=("--notion", "--no-notify")):
         api = mock.Mock()
-        api.existing_job_ids.return_value = {listings[0].job_id}
-        internship_tracker.write_to_notion(api, "db1", listings, tombstoned=set())
+        api.existing_job_ids.return_value = existing
+        api.add_all.side_effect = lambda db, batch: list(batch)
+        api.rows_to_backfill.return_value = []
+        api.rows_missing_applied_date.return_value = []
+        api.rows_for_digest.return_value = ([], 0, 0)
+
+        enriched = []
+
+        def fake_enrich_all(batch, **kw):
+            # Stand-in for the real thing, which fetches every posting page
+            # and overwrites category from is_game.
+            enriched.extend(batch)
+            for listing in batch:
+                listing.category = enrich.category_for(listing)
+
+        with mock.patch("internship_tracker.notion_sink.Notion", return_value=api), \
+             mock.patch("internship_tracker.config.require_env", return_value="x"), \
+             mock.patch("internship_tracker.sources.fetch_all", return_value=listings), \
+             mock.patch("internship_tracker.md_parser.fetch_readme",
+                        return_value=PROGRAMS_MARKDOWN), \
+             mock.patch("internship_tracker.tombstones.load", return_value=set()), \
+             mock.patch("internship_tracker.enrich.enrich_all", fake_enrich_all):
+            exit_code = internship_tracker.main(list(argv))
+
+        written = api.add_all.call_args[0][1] if api.add_all.called else []
+        return exit_code, enriched, written
+
+    def test_programs_keep_their_category_through_a_full_run(self):
+        exit_code, _enriched, written = self.run_main([make("https://x.com/jobs/1")], set())
+        self.assertEqual(exit_code, 0)
+        programs = [l for l in written if l.source == "programs"]
+        self.assertEqual([l.category for l in programs], ["Program / Fellowship"])
+
+    def test_enrichment_only_runs_for_listings_not_already_in_notion(self):
+        known = make("https://x.com/jobs/1111111", role="Gameplay Intern")
+        unknown = make("https://x.com/jobs/2222222", role="Engine Intern")
+        _code, enriched, _written = self.run_main([known, unknown], {known.job_id})
+        self.assertEqual([l.job_id for l in enriched], [unknown.job_id])
+
+    def test_a_run_with_nothing_new_enriches_nothing(self):
+        known = make("https://x.com/jobs/1111111")
+        _code, enriched, _written = self.run_main([known], {known.job_id})
+        self.assertEqual(enriched, [])
+
+    def test_programs_are_never_enriched(self):
+        _code, enriched, written = self.run_main([make("https://x.com/jobs/1")], set())
+        self.assertTrue(any(l.source == "programs" for l in written))
+        self.assertFalse(any(l.source == "programs" for l in enriched))
+
+    def test_every_written_listing_carries_a_posting_date(self):
+        # first_seen is the last rung of the ladder; a blank Posted blanks the
+        # Hours Since Posted column the Recent view sorts on.
+        _code, _enriched, written = self.run_main([make("https://x.com/jobs/1")], set())
+        self.assertTrue(written)
+        for listing in written:
+            self.assertIsNotNone(listing.posted_at)
+            self.assertEqual(listing.posted_precision, "first_seen")
+
+
+class TestNotionFailureAlerts(unittest.TestCase):
+    def test_a_notion_outage_alerts_discord_and_exits_non_zero(self):
+        api = mock.Mock()
+        api.ensure_schema.side_effect = RuntimeError("Notion GET /databases/db1 -> 503")
+        with mock.patch("internship_tracker.notion_sink.Notion", return_value=api), \
+             mock.patch("internship_tracker.config.require_env", return_value="x"), \
+             mock.patch("internship_tracker.sources.fetch_all",
+                        return_value=[make("https://x.com/jobs/1")]), \
+             mock.patch("internship_tracker.md_parser.fetch_readme", return_value=""), \
+             mock.patch("internship_tracker.notify.send",
+                        return_value=["discord"]) as fake_send:
+            exit_code = internship_tracker.main(["--notion", "--no-notify"])
+
+        self.assertEqual(exit_code, 1)
+        fake_send.assert_called_once()
+        self.assertIn("503", fake_send.call_args[0][1])
+
+    def test_nothing_is_written_when_the_dedup_read_fails(self):
+        api = mock.Mock()
+        api.existing_job_ids.side_effect = RuntimeError("no Job ID column")
+        with mock.patch("internship_tracker.notion_sink.Notion", return_value=api), \
+             mock.patch("internship_tracker.config.require_env", return_value="x"), \
+             mock.patch("internship_tracker.sources.fetch_all",
+                        return_value=[make("https://x.com/jobs/1")]), \
+             mock.patch("internship_tracker.md_parser.fetch_readme", return_value=""), \
+             mock.patch("internship_tracker.notify.send", return_value=["discord"]):
+            exit_code = internship_tracker.main(["--notion", "--no-notify"])
+
+        self.assertEqual(exit_code, 1)
         api.add_all.assert_not_called()
+
+
+class TestTombstoneFlag(unittest.TestCase):
+    """The production caller for tombstones. Without it a page deleted in
+    Notion comes straight back on the next run.
+    """
+
+    def test_the_flag_records_the_ids_and_fetches_nothing(self):
+        with mock.patch("internship_tracker.tombstones.add", return_value=2) as add, \
+             mock.patch("internship_tracker.tombstones.load", return_value=set()), \
+             mock.patch("internship_tracker.sources.fetch_all") as fetch_all:
+            exit_code = internship_tracker.main(
+                ["--tombstone", "greenhouse.io:123", "lever.co:456"]
+            )
+        self.assertEqual(exit_code, 0)
+        add.assert_called_once_with(["greenhouse.io:123", "lever.co:456"])
+        fetch_all.assert_not_called()
+
+    def test_a_tombstoned_id_is_never_written_on_the_next_run(self):
+        listing = make("https://x.com/jobs/1111111")
+        with mock.patch("internship_tracker.tombstones.load",
+                        return_value={listing.job_id}):
+            self.assertEqual(
+                internship_tracker.select_new([listing], set(),
+                                              internship_tracker.tombstones.load()),
+                [],
+            )
 
 
 def backfill_row(needs_skills=True, needs_recruiter=True, url="https://x.com/job/1",

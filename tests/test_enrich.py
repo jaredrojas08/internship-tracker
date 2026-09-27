@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from unittest import mock
 
@@ -111,6 +112,31 @@ class TestEnrich(unittest.TestCase):
             enrich.enrich_all([listing])  # must not raise
 
         self.assertEqual(listing.category, "Game Programming")
+
+    def test_a_raising_category_for_is_never_called_twice(self):
+        # It is pure over the same listing, so a second call raises again.
+        listing = make()
+        with mock.patch.object(enrich, "category_for",
+                               side_effect=RuntimeError("boom")) as category_for:
+            enrich.enrich_all([listing])
+        self.assertEqual(category_for.call_count, 1)
+
+
+class TestStampFirstSeen(unittest.TestCase):
+    def test_a_listing_with_no_estimate_is_dated_to_this_run(self):
+        listing = make()
+        enrich.stamp_first_seen([listing])
+        self.assertIsNotNone(listing.posted_at)
+        self.assertEqual(listing.posted_precision, "first_seen")
+        self.assertIsNotNone(listing.posted_at.tzinfo)
+
+    def test_a_scraped_estimate_is_never_overwritten(self):
+        scraped = dt.datetime(2026, 9, 1, 12, 0, tzinfo=dt.timezone.utc)
+        listing = make()
+        listing.posted_at, listing.posted_precision = scraped, "scraped"
+        enrich.stamp_first_seen([listing])
+        self.assertEqual(listing.posted_at, scraped)
+        self.assertEqual(listing.posted_precision, "scraped")
 
 
 if __name__ == "__main__":
