@@ -6,7 +6,7 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 
 | Source | Listings | Notes |
 |---|---|---|
-| [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also publishes a Programs & Fellowships table (not synced — see Failure behavior) |
+| [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also publishes the Programs & Fellowships table (see Notion database below) |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
 | Game studio ATS boards (`studios.py`) | ~20 in season | 31 boards over Greenhouse / Ashby / Lever / Workday / Avature |
 
@@ -77,7 +77,7 @@ The schema lives in `notion_sink.SCHEMA` — that dict is the source of truth; t
 
 **Applied**, **My Resume PDF**, and **Deadline** (when you type over it) are yours; the script reads them but never overwrites a value you set. Job ID, not row position, is how a listing is recognized across runs, so sorting or filtering the database view never breaks the sync.
 
-Programs & Fellowships aren't synced by the daily run — see "Programs" under Failure behavior below.
+Programs & Fellowships share this same database and shape: `parser.programs_to_listings` maps Organization → Company, Opportunity → Title, tags every row Category `Program / Fellowship`, and folds Type plus any non-ISO Deadline into Notes. They're appended after the regular listings are enriched, not before, so enrichment (which recomputes Category and re-fetches the apply page) never overwrites them.
 
 ### Deadline
 
@@ -225,4 +225,4 @@ After editing, run the tests (`./venv/bin/python -m unittest discover -s tests`)
 - One bad row in backfill or Applied Date stamping is logged and skipped, not allowed to abort the rest of the batch
 - Delivery failures in the digest are logged as warnings and never fail the run — the database is already written by then
 
-Programs & Fellowships parsing (`parser.parse_programs`) still exists but the daily run doesn't call it — the Sheets pipeline was its only consumer. The Notion database currently only ever received programs through the one-time `migrate.py` backfill, which has been deleted now that the migration is done. Wiring programs into the ongoing Notion sync, if wanted, is unbuilt.
+Programs & Fellowships are re-parsed every run alongside the regular listings, reusing the sndsh404 README already downloaded for that source — no extra HTTP call on the common path. If that source failed this run, fetching the README again just for programs is attempted once more; if that also fails, the run logs a warning and skips programs for that run rather than failing the whole sync.

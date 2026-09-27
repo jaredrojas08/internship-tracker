@@ -367,3 +367,49 @@ def parse_programs(markdown):
 
     log.info("Programs: %d parsed", len(programs))
     return programs
+
+
+def _iso_date(value):
+    """Return value if it parses as an ISO calendar date, else None.
+
+    Most Deadline cells in the programs table read "rolling" or "check site"
+    instead of a date. Notion's date property requires ISO 8601, and a
+    free-text value sent through unchecked 400s the whole page write.
+    """
+    value = (value or "").strip()
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
+
+
+def programs_to_listings(programs):
+    """Fold Programs & Fellowships rows into the same Listing shape as everything else.
+
+    Org -> Company, Opportunity -> Title. There's no dedicated property for a
+    program's Type, so it folds into Notes; a Deadline that isn't a real ISO
+    date (most aren't) has nowhere else to go either, so it joins it there.
+    """
+    listings = []
+    for program in programs:
+        deadline = _iso_date(program.deadline) or ""
+
+        notes_parts = []
+        if program.type:
+            notes_parts.append(program.type)
+        if program.deadline and not deadline:
+            notes_parts.append(f"Deadline: {program.deadline}")
+
+        listing = Listing(
+            company=program.org,
+            role=program.opportunity,
+            location="",
+            apply_url=program.link,
+            source="programs",
+            deadline=deadline,
+            notes="; ".join(notes_parts),
+        )
+        listing.category = "Program / Fellowship"
+        listings.append(listing)
+    return listings

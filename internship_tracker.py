@@ -129,10 +129,12 @@ def main(argv=None):
         log.error("Nothing to do: pass --notion, --create-database, or --test-notify.")
         return 1
 
-    # 1. Fetch and parse every configured source.
+    # 1. Fetch and parse every configured source, sharing one download cache
+    #    so the programs table doesn't refetch a README already pulled.
+    downloads = {}
     source_health = []
     try:
-        listings = sources.fetch_all(health=source_health)
+        listings = sources.fetch_all(cache=downloads, health=source_health)
     except md_parser.ParseError as exc:
         log.error("Parse failed, refusing to write bad data: %s", exc)
         return 1
@@ -144,6 +146,16 @@ def main(argv=None):
     log.info("%d unique listing(s) after removing %d duplicate(s)", len(listings), duplicates)
 
     enrich.enrich_all(listings)
+
+    # Appended after enrich_all, not before: enrichment re-derives category
+    # from is_game and re-fetches the apply page, which would overwrite
+    # "Program / Fellowship" and the notes programs_to_listings just set.
+    try:
+        markdown = downloads.get(config.README_URL) or md_parser.fetch_readme()
+        listings = listings + md_parser.programs_to_listings(md_parser.parse_programs(markdown))
+    except requests.RequestException as exc:
+        log.warning("Could not fetch the programs source; skipping programs this run: %s", exc)
+
     api = notion_sink.Notion(config.require_env("NOTION_TOKEN"))
     database_id = config.require_env("NOTION_DATABASE_ID")
     api.ensure_schema(database_id)
