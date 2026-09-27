@@ -2,7 +2,9 @@
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Optional
 
 import requests
 
@@ -37,6 +39,23 @@ class Listing:
     # whether the title contains a game keyword.
     from_game_studio: bool = False
 
+    # --- Notion-side fields, filled in by enrich.py -------------------------
+    posted_at: Optional[datetime] = None   # always tz-aware UTC
+    # How much to trust posted_at: "scraped" | "commit" | "first_seen" | "day"
+    posted_precision: str = "unknown"
+    category: str = ""
+    resume_keywords: List[str] = field(default_factory=list)
+    skills: List[str] = field(default_factory=list)
+    recruiter: str = ""
+    notes: str = ""
+    deadline: str = ""            # ISO date, user-owned once written
+    applied: str = ""             # Notion's Applied select name; "" means "Not applied"
+
+    # Lists that syndicate the same few hundred well-known postings. A listing
+    # none of them carried came from a smaller board, which is the interesting
+    # case.
+    MAINSTREAM_SOURCES = ("sndsh404", "speedyapply")
+
     @property
     def is_remote(self):
         return "remote" in self.location.lower()
@@ -46,6 +65,10 @@ class Listing:
         return self.from_game_studio or config.is_game_role(self.role)
 
     @property
+    def term(self):
+        return config.term_for(self.role)
+
+    @property
     def key(self):
         """Identity across runs. Row position is never used for this."""
         return (
@@ -53,6 +76,24 @@ class Listing:
             self.role.strip().lower(),
             self.apply_url.strip().lower(),
         )
+
+    @property
+    def job_id(self):
+        """Stable identity for Notion dedup, derived from the posting URL."""
+        import sources
+        # Company keeps this branch from colliding across companies with the same
+        # role text and no URL, since url_fingerprint returns None for that case.
+        fallback = ("", f"{self.company.lower()}:{self.role.lower()}")
+        host, ident = sources.url_fingerprint(self.apply_url) or fallback
+        return f"{host}:{ident}"
+
+    def is_niche(self):
+        """True when no mainstream aggregator carried this listing."""
+        found_in = self.source.lower()
+        return not any(name in found_in for name in self.MAINSTREAM_SOURCES)
+
+    def skills_cell(self):
+        return ", ".join(self.skills)
 
 
 @dataclass
@@ -322,3 +363,49 @@ def parse_programs(markdown):
 
     log.info("Programs: %d parsed", len(programs))
     return programs
+
+
+def _iso_date(value):
+    """Return value if it parses as an ISO calendar date, else None.
+
+    Most Deadline cells in the programs table read "rolling" or "check site"
+    instead of a date. Notion's date property requires ISO 8601, and a
+    free-text value sent through unchecked 400s the whole page write.
+    """
+    value = (value or "").strip()
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
+
+
+def programs_to_listings(programs):
+    """Fold Programs & Fellowships rows into the same Listing shape as everything else.
+
+    Org -> Company, Opportunity -> Title. There's no dedicated property for a
+    program's Type, so it folds into Notes; a Deadline that isn't a real ISO
+    date (most aren't) has nowhere else to go either, so it joins it there.
+    """
+    listings = []
+    for program in programs:
+        deadline = _iso_date(program.deadline) or ""
+
+        notes_parts = []
+        if program.type:
+            notes_parts.append(program.type)
+        if program.deadline and not deadline:
+            notes_parts.append(f"Deadline: {program.deadline}")
+
+        listing = Listing(
+            company=program.org,
+            role=program.opportunity,
+            location="",
+            apply_url=program.link,
+            source="programs",
+            deadline=deadline,
+            notes="; ".join(notes_parts),
+        )
+        listing.category = "Program / Fellowship"
+        listings.append(listing)
+    return listings

@@ -273,57 +273,6 @@ def fetch_all(only=None, cache=None, health=None):
     return collected
 
 
-def retain_from_state(state, listings, failed_sources):
-    """Rebuild listings for sources that failed, from what the sheet already has.
-
-    Without this, one upstream 404 deletes every row that source contributed —
-    a transient outage becomes permanent data loss, and the rows come back as
-    "new" whenever the source recovers, resetting their Date Added. Retaining
-    them keeps a broken source's listings visible and stable until it returns.
-    """
-    if not failed_sources:
-        return []
-
-    have = {listing.key for listing in listings}
-    retained = []
-    for existing in state.values():
-        if existing.get("source") not in failed_sources:
-            continue
-        key = (
-            existing["company"].strip().lower(),
-            existing["role"].strip().lower(),
-            existing["apply_url"].strip().lower(),
-        )
-        if key in have:
-            continue
-        retained.append(
-            md.Listing(
-                company=existing["company"],
-                role=existing["role"],
-                location=existing.get("location", ""),
-                apply_url=existing["apply_url"],
-                source=existing.get("source", ""),
-                salary=existing.get("salary", ""),
-            )
-        )
-    if retained:
-        log.warning(
-            "Retained %d listing(s) from failed source(s) %s rather than deleting them",
-            len(retained),
-            ", ".join(sorted(failed_sources)),
-        )
-    return retained
-
-
-def failed_source_names(health):
-    """Sources that errored or came back empty this run."""
-    return {
-        h["name"]
-        for h in health
-        if not h["ok"] or (h["count"] == 0 and not h.get("allow_empty"))
-    }
-
-
 def assess_health(health, prior_counts, drop_threshold=0.5):
     """Return human-readable warnings about sources that broke or shrank.
 

@@ -1,12 +1,12 @@
 # Internship Tracker
 
-Aggregates Summer 2027 internship listings from multiple public sources, filters them against one profile, deduplicates across sources, and syncs to a styled Google Sheet. Runs daily on GitHub Actions — nothing needs to be running locally.
+Aggregates Summer 2027 internship listings from multiple public sources, filters them against one profile, deduplicates across sources, and syncs to a Notion database. Runs hourly on GitHub Actions — nothing needs to be running locally.
 
 ## Sources
 
 | Source | Listings | Notes |
 |---|---|---|
-| [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also supplies the Programs tab |
+| [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also publishes the Programs & Fellowships table (see Notion database below) |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
 | Game studio ATS boards (`studios.py`) | ~20 in season | 31 boards over Greenhouse / Ashby / Lever / Workday / Avature |
 
@@ -14,11 +14,11 @@ Each source gets its own parse function in `sources.py`; everything downstream i
 
 ### When a source breaks
 
-One bad upstream must not take down the run, but degrading quietly is its own failure. Two protections:
+One bad upstream must not take down the run, but degrading quietly is its own failure.
 
-**Rows are retained, not deleted.** A source returning a 404 used to delete every row it contributed — a transient outage becoming permanent data loss, with the listings returning later as "new" and their `Date Added` reset. Now those rows are rebuilt from the sheet and kept until the source recovers. Verified: simulating a speedyapply 404 keeps all 216 rows instead of dropping to 95.
+**Existing pages are never deleted.** The Notion sink only ever appends listings it hasn't seen before (`write_to_notion`); a source going down for a day just means fewer new pages that run, never fewer old ones. This is a structural difference from the old Sheets sink, which rebuilt every row from the current fetch each run and needed an explicit retention step to avoid wiping out a source's rows during an outage.
 
-**The digest says so, loudly.** A failure, an empty parse, or a drop of more than 50% versus what that source contributed last run all produce a 🚨 warning pinned to the top of the message, and the headline changes to `⚠️ source problem`. Without this a broken source looks exactly like a quiet day.
+**The digest says so, for outright failures.** A source returning an error, or parsing to zero listings when it isn't supposed to be empty, produces a 🚨 warning pinned to the top of the digest, and the headline changes to `⚠️ source problem`. A source that parses successfully but returns far fewer listings than usual — a shrink rather than a failure — isn't caught: that check needs a per-source history of counts, which only the retired Sheets pipeline kept.
 
 ### Deduplication
 
@@ -45,68 +45,59 @@ The costs aren't symmetric: a false merge hides a real posting permanently, a mi
 3. Drops closed roles (🔒) and anything gated on a graduate degree
 4. Keeps roles matching the keyword filter in `config.py`
 5. Deduplicates across sources
-6. Writes to a styled Google Sheet, preserving your manual entries
+6. Writes new listings into a Notion database, deduplicated by Job ID and never rewriting a page that already exists
 
 Sponsorship and citizenship flags (🛂, 🇺🇸) are deliberately **kept** so you can see them.
 
-## Sheet layout
+## Notion database
 
-**Tab: Internship Listings**
+The schema lives in `notion_sink.SCHEMA` — that dict is the source of truth; this table just names what each property is for.
 
-| Col | Content |
-|-----|---------|
-| A | Company |
-| B | Role (emoji flags preserved) |
-| C | Location |
-| D | Apply link |
-| E | Salary — where the source publishes it |
-| F | **Deadline** — mostly yours to fill in (see below) |
-| G | Date Added — when the script first saw it |
-| H | Remote? |
-| I | Game? — game development role |
-| J | Link Status — `OPEN` / `CLOSED` / `DEAD` / `UNKNOWN` |
-| K | Last Checked — when the link was last verified |
-| L | Source — which list it came from |
-| M | **Application** — dropdown: `Not Applied` (default, red) / `Applying` (amber) / `Applied` |
-| N | Applied Date — auto-stamped the first time a row is set to `Applied` |
-| O | **Remove?** — check to delete the row |
+| Property | Type | Content |
+|---|---|---|
+| Title | title | Role (emoji flags preserved) |
+| Company | rich text | Company name |
+| Category | select | e.g. game dev, backend, ML — from `enrich.category_for` |
+| Term | select | Extracted from the title, e.g. "Summer 2027" |
+| Location | rich text | Location as the source published it |
+| Application Portal | url | Apply link |
+| Resume Keywords | multi-select | Keywords `enrich` pulled from the posting |
+| Skill Requirements | rich text | Requirements section scraped from the posting page |
+| Posted | date | The employer's own `datePosted` when the page publishes one, otherwise the run that first saw the listing (`first_seen`). Never blank, because Hours Since Posted is what the Recent view sorts on |
+| Hours Since Posted | formula | `dateBetween(now(), Posted, "hours")` — self-updating, no write needed |
+| Recruiter Contact | email | Scraped from the posting page when present |
+| **Applied** | select | `Not applied` (default) / `Applying` / `Applied` / `Interviewing` / `Offer` / `Rejected` |
+| My Resume PDF | files | Yours to attach; the script never touches it |
+| Source | select | Which list the listing came from |
+| Job ID | rich text | Dedup key, derived from the apply URL. Hidden from views, not from you. **Never rename or clear this column**: a populated database that reads back zero job ids aborts the run rather than re-adding all 745 rows |
+| Notes | rich text | Free text; catches deadlines the Deadline property can't hold (e.g. "rolling") |
+| Niche | checkbox | True if no mainstream aggregator carried this listing |
+| Deadline | date | Filled only when a page states one in machine-readable form (see below) |
+| **Applied Date** | date | Stamped once, the first time a row is set to `Applied`. Never rewritten after |
 
-Both tabs are native Google Sheets Tables, so you get per-column filter dropdowns for free. The Strawberry Kiss palette is applied through the table's own header and banding colors rather than conditional formatting.
+**Applied**, **My Resume PDF**, and **Deadline** (when you type over it) are yours; the script reads them but never overwrites a value you set. Job ID, not row position, is how a listing is recognized across runs, so sorting or filtering the database view never breaks the sync.
 
-**Tab: Programs & Fellowships** — org, opportunity, link, type, deadline, date added, plus **Applied?** and **Remove?** checkboxes with the same semantics as the listings tab. Keyed on organization + opportunity.
-
-Removed programs tombstone to a separate hidden **Removed Programs** tab rather than the listings one, since programs key on two fields and listings on three. A program whose Deadline cell holds a real date greys out once it has passed; most are free text like `rolling` or `check site`, so that rule is guarded on `ISNUMBER`.
-
-**Tabs: Removed / Removed Programs** (hidden) — tombstones. Without this a removed row would be re-added on the next run, since the script would no longer see it in the sheet and would treat it as new. To un-remove something, delete its row here.
-
-### The columns you own
-
-`Application`, `Remove?` and `Deadline` are never overwritten. `Applying` is the work queue: rows in that state are the ones to write a tailored resume and cover letter for. The script identifies each listing by `Company + Role + Apply URL`, not by row number, so it re-sorts the whole sheet every run without your entries drifting onto the wrong listing.
-
-Check `Remove?` on anything you don't want. It disappears on the next run and won't come back.
+Programs & Fellowships share this same database and shape: `parser.programs_to_listings` maps Organization → Company, Opportunity → Title, tags every row Category `Program / Fellowship`, and folds Type plus any non-ISO Deadline into Notes. They skip enrichment entirely, which is what keeps their Category and Notes intact, since enrichment recomputes Category from the role title and re-fetches the apply page.
 
 ### Deadline
 
-**Measured against the live sources, roughly 3% of postings state a deadline in machine-readable form.** Job boards overwhelmingly don't publish one. So this column is primarily yours to fill in by hand; the script fills it only when a page explicitly says something like "apply by January 15, 2027" *and* the cell is still blank. Anything you type wins permanently.
+**Measured against the live sources, roughly 3% of postings state a deadline in machine-readable form.** Job boards overwhelmingly don't publish one. So this property is primarily yours to fill in by hand; the script fills it only when a page explicitly says something like "apply by January 15, 2027" *and* the property is still blank. Anything you type wins permanently. A hand-typed value that isn't a real date (`rolling`, `check site`) has nowhere to go in a date property, so it lands in Notes instead.
 
 A bare date on a job page is usually the start date or posting date, so extraction requires an explicit cue phrase ahead of the date and won't reach across a sentence boundary.
 
-Deadlines within the next 14 days highlight in dusty rose. A passed deadline greys the row out and sinks it, whether the script found it or you typed it.
-
 ### Applied Date and follow-ups
 
-Ticking `Applied?` stamps today's date into `Applied Date` on the next run. The stamp is **never cleared** — unticking the box by accident shouldn't destroy the record of when you submitted.
+Setting **Applied** to `Applied` stamps today's date into **Applied Date** on the next run. The stamp is **never cleared** — changing the status back by accident shouldn't destroy the record of when you submitted.
 
-An application still unanswered after `FOLLOW_UP_AFTER_DAYS` (21) highlights and appears in the digest. Roles whose link has since gone `DEAD` or `CLOSED` are excluded: those aren't waiting on a reply, they're over.
+An application still unanswered after `FOLLOW_UP_AFTER_DAYS` (21) appears in the digest. There's no Notion equivalent of a dead or closed link — link checking isn't part of this design — so every row counts as open for that purpose.
 
 ### Daily digest
 
-The sheet is a pull interface — only useful when you remember to open it. The digest pushes what changed:
+The Notion database is a pull interface — only useful when you remember to open it. The digest pushes what changed:
 
-- new listings, with game roles called out first — **excluding any that are already `DEAD` or `CLOSED`**, since a notification is a claim there's something to apply to
+- new listings, with game roles called out first
 - deadlines within 14 days you haven't applied to
 - applications past the follow-up window
-- roles you applied to whose posting has since closed
 
 On a quiet day it sends a one-line heartbeat instead:
 
@@ -119,6 +110,10 @@ That exists so **silence always means the run failed**, never "nothing happened"
 
 Set `NOTIFY_ON_QUIET_DAYS=false` to only hear from it when something actually changed.
 
+**One digest a day, covering every listing since the last one.** The scrape runs hourly but the digest fires once every 24 hours, so each run parks what it found in `digest_state.json` (which the workflow commits) and the next digest to pass the gate announces the whole backlog at once. A successful send clears it; a failed send leaves it, so the retry an hour later still has something to say.
+
+A source failure is the exception: it sends immediately, whatever the gate says. That alert carries **only** the warning, and does not start the 24-hour cooldown. Otherwise a 3am breakage notice would stand in for the day's real digest.
+
 Verify a new channel with `--test-notify`, which sends a clearly-labelled sample and exits.
 
 Channels are opt-in by secret; set either, both, or neither:
@@ -128,34 +123,21 @@ Channels are opt-in by secret; set either, both, or neither:
 | Discord | `DISCORD_WEBHOOK_URL` — create via Server Settings → Integrations → Webhooks |
 | Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `NOTIFY_EMAIL_TO` |
 
-With neither set the digest silently no-ops. Delivery failures are logged as warnings and never fail the run — the sheet is already written by then. Skip with `--no-notify`.
+With neither set the digest silently no-ops. Delivery failures are logged as warnings and never fail the run — the database is already written by then. Skip with `--no-notify`.
 
-### Link checking
+There is no link checking in this pipeline: a listing's apply link is never re-fetched to see if the role is still open. `ats.py` fetches each posting exactly once (on the run that first sees it, before it is written), and only to scrape Skill Requirements, Recruiter Contact and the posting date, not to classify link health.
 
-Every run fetches each application URL and classifies it:
+That ordering is load-bearing. Dedup against Notion runs *before* enrichment (`select_new`, then `enrich.enrich_all`), so a run that finds nothing new makes no outbound fetches at all. Enriching first meant ~735 fetches an hour to write zero pages, which is roughly 530,000 requests a month at other people's ATS servers and more Actions minutes than the free tier allows.
 
-| Value | Meaning | Reliability |
-|-------|---------|-------------|
-| `OPEN` | 200, no closure text found | good, but a live page can still be a closed role |
-| `CLOSED` | page says it's no longer accepting applications | high — the phrase list is deliberately specific |
-| `DEAD` | HTTP 404 or 410 | high |
-| `UNKNOWN` | JS-only page, bot-blocked, or timed out | no signal either way |
-
-**Nothing is ever auto-deleted.** Dead and closed listings sink to the bottom of the sheet and grey out, so a misclassification costs you a glance rather than a listing. Network errors and timeouts return `UNKNOWN`, never `DEAD` — a blip should not condemn a live posting.
-
-The honest limitation: a `200` does not prove a role is still open. Greenhouse, Lever and Ashby 404 properly when a job closes, so detection is reliable there. Workday and iCIMS ship a JavaScript shell with no readable text, which is why they come back `UNKNOWN` rather than being guessed at.
-
-**Cadence:** each listing is re-checked every **7 days**, not every run — tracked per row in `Last Checked`. A listing the script has never seen is checked immediately, so new arrivals are always verified on arrival. This keeps the daily run fast and avoids hitting the job boards hundreds of times a day.
-
-Skip it with `--skip-links`, or force a full sweep now with `--force-links`.
+The one exception is backfill: up to 25 rows a run whose Skill Requirements still say "See posting" get their page re-fetched, so a transient failure heals itself. A missing Recruiter Contact never queues a row: most postings simply don't print an address, and queueing on it pinned the same few rows at the head of the queue forever.
 
 ### Game roles
 
-`GAME_KEYWORDS` in `config.py` flags game development work — Unity, Unreal, gameplay, graphics, shaders, rendering, VR/XR, technical art. These sort above everything except brand-new listings and get the deep-berry highlight.
+`GAME_KEYWORDS` in `config.py` flags game development work — Unity, Unreal, gameplay, graphics, shaders, rendering, VR/XR, technical art. These sort above everything except brand-new listings.
 
 Bare `engine` is deliberately **not** a keyword: it matches jet engines, search engines and rules engines far more often than game engines. `game engine` is listed in full instead.
 
-**Reality check.** Measured across ~4,100 rows in seven public internship lists, plus 1,144 jobs pulled directly from 14 game studio job boards, there is currently **one** game-adjacent Summer 2027 internship: Brunswick's Computer Graphics Software Developer Intern. It's on the sheet, sorted to the top by this rule.
+**Reality check.** Measured across ~4,100 rows in seven public internship lists, plus 1,144 jobs pulled directly from 14 game studio job boards, there is currently **one** game-adjacent Summer 2027 internship: Brunswick's Computer Graphics Software Developer Intern. It's in the database, sorted to the top by this rule.
 
 That is a timing artifact, not a filter problem. Quant firms and big tech post 12+ months ahead; **game studios post summer internships between September and January**. Riot, Epic and Naughty Dog simply haven't opened Summer 2027 yet.
 
@@ -192,9 +174,21 @@ Three rules specific to this source:
 
 Handshake is not an option: it's behind Cornell SSO, has no public API, and automated access violates its terms.
 
+### Deleting a listing
+
+Dedup is against pages currently in the database, so deleting a page in Notion just makes the listing look new again on the next run. Record the Job ID instead:
+
+```bash
+./venv/bin/python internship_tracker.py --tombstone greenhouse.io:1234567
+```
+
+That appends to `removed.json`, which the workflow commits, and those ids are never written again. The Job ID is on the row itself (the column is hidden in most views, not removed). Several at once is fine: `--tombstone a b c`.
+
+Marking a row `Rejected` is the softer option and needs no tombstone, since the page still exists, so dedup skips it anyway.
+
 ### Sort order
 
-Applicable first, then **game**, then remote, then newest, then alphabetical by company. Row order changes between runs because the sheet is rebuilt each time, not appended to. What arrived today is in the Discord digest; the sheet itself carries no new/seen marker.
+The script only ever appends pages; it never reorders the database. Sorting and filtering (by Category, Term, Applied, Niche, and so on) is a Notion view you set up yourself. What arrived today is in the digest; the database itself carries no new/seen marker.
 
 ## Local setup
 
@@ -204,37 +198,23 @@ python3 -m venv venv
 cp .env.example .env      # then fill it in
 ```
 
-`.env` needs:
-
-- `GOOGLE_SHEETS_CREDENTIALS` — path to your service account JSON
-- `GOOGLE_SHEET_ID` — the string in the Sheet URL between `/d/` and `/edit`
-
-### Google Cloud credentials
-
-1. [console.cloud.google.com](https://console.cloud.google.com) → new project
-2. Enable the **Google Sheets API** and **Google Drive API**
-3. Credentials → Create credentials → **Service account**. Skip the role step — it needs no project role
-4. Service account → Keys → Add Key → JSON → download
-5. Store it **outside this repo**. `.gitignore` blocks `service-account*.json` and `*-credentials.json`, but the safest place is somewhere else entirely
-6. Share your Sheet with the service account's `client_email` as **Editor**
+`.env` needs `NOTION_TOKEN`, `NOTION_PARENT_PAGE_ID`, and `NOTION_DATABASE_ID`. Getting those three values, including the one-time integration setup, is documented in [`docs/notion-setup.md`](docs/notion-setup.md).
 
 ## Running
 
 ```bash
-./venv/bin/python internship_tracker.py --dry-run   # preview, writes nothing
-./venv/bin/python internship_tracker.py             # sync
-./venv/bin/python internship_tracker.py --no-style   # skip formatting
-./venv/bin/python internship_tracker.py --skip-links  # skip link checking
-./venv/bin/python internship_tracker.py --force-links # re-check every link now
-./venv/bin/python internship_tracker.py --test-notify  # send a sample digest and exit
-./venv/bin/python internship_tracker.py --no-notify    # skip the digest
+./venv/bin/python internship_tracker.py --notion         # fetch, filter, and sync to Notion
+./venv/bin/python internship_tracker.py --create-database  # one-time: create the database, print its id
+./venv/bin/python internship_tracker.py --test-notify    # send a sample digest and exit
+./venv/bin/python internship_tracker.py --notion --no-notify  # sync without sending a digest
+./venv/bin/python internship_tracker.py --tombstone JOB_ID  # never re-add a listing you deleted in Notion
 ```
 
-`--dry-run` is fully read-only: it won't create tabs or modify a single cell.
+There's no dry-run preview for the Notion sink: `--notion` fetches, filters, and writes in one pass. To check the effect of a filter change without writing, read the run's log output — it reports unique-listing and new-listing counts before anything is sent to Notion — or temporarily add a print in `main()`.
 
 ## GitHub Actions
 
-Runs daily at 18:00 UTC (2 PM ET in summer, 1 PM in winter). GitHub's scheduler is best-effort and can lag by several minutes under load.
+Runs hourly at :20. GitHub's scheduler is best-effort and can lag under load.
 
 Manual run: **Actions** tab → *Update Internship Listings* → **Run workflow**.
 
@@ -242,10 +222,10 @@ Required repository secrets (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
 |--------|-------|
-| `GOOGLE_SHEETS_CREDENTIALS` | the entire JSON key file contents |
-| `GOOGLE_SHEET_ID` | the spreadsheet ID |
+| `NOTION_TOKEN` | the integration's API token |
+| `NOTION_DATABASE_ID` | the database id, from `--create-database` |
 
-The same env var holds a file path locally and raw JSON in CI; the script detects which.
+`NOTION_PARENT_PAGE_ID` is only needed locally, for the one-time `--create-database` run; the workflow never calls it and doesn't need the secret.
 
 ## Tuning the filter
 
@@ -255,24 +235,17 @@ Everything lives in `config.py`:
 - `CASE_SENSITIVE_KEYWORDS` — uppercase acronyms. `IT` is here because case-insensitively it would match the English word "it"
 - `requires_advanced_degree()` — drops PhD/Master's-gated roles, unless the posting also names BS/undergrad (as in "Intern (BS/MS/PhD)")
 
-After editing, check the effect before syncing:
-
-```bash
-./venv/bin/python internship_tracker.py --dry-run
-```
+After editing, run the tests (`./venv/bin/python -m unittest discover -s tests`) — `tests/test_config.py` covers the term extractor, and a filter change is otherwise easy to verify by hand against a few titles in a shell.
 
 ## Failure behavior
 
-- Network failure → logs and exits non-zero without touching the sheet
+- No listings from any source → refuses to write, so a total parse failure can't wipe the database
+- Notion unreachable, rate limited past its retries, or otherwise erroring → the run writes nothing further, posts a 🚨 alert to Discord, and exits non-zero. Silence never means a failed sync
+- The `Job ID` column renamed or emptied → the run aborts. A populated database reading back zero job ids is a schema incident, and treating it as an empty database would append every listing a second time
 - Missing/renamed columns in the source table → refuses to write rather than producing garbage
 - The source added an `Added` column after this was built; the parser treats it as optional
-- Formatting errors are caught after data is written, so a styling failure can't cost you listings
-- Link-check failures degrade to `UNKNOWN` per URL; one bad host can't fail the run
+- A page that 429s or 5xxs is retried with backoff (`notion_sink.Notion._call`); one bad Notion request doesn't necessarily fail the run
+- One bad row in backfill or Applied Date stamping is logged and skipped, not allowed to abort the rest of the batch
+- Delivery failures in the digest are logged as warnings and never fail the run — the database is already written by then
 
-### Three traps worth recording
-
-**`deleteTable` deletes the table _and its data rows_.** Rebuilding the table each run by delete-then-add silently emptied every text column while leaving the checkboxes behind. `styling.py` uses `updateTable` to resize in place and never issues `deleteTable`.
-
-**A Table's BOOLEAN column coerces whatever you write into it.** Inserting `Salary` and `Source` shifted the checkbox columns, but the existing Table still declared BOOLEAN at the *old* positions — so writing rows turned `Last Checked` and `Source` into `FALSE` on 121 rows. `styling.sync_table_schema` now runs **before** the data write, not after.
-
-**Header rewrites must migrate data.** `read_listing_state` derives column positions from row 1 of the sheet. If the header is rewritten to a new layout before state is read, new positions get mapped onto old rows and every column shifts — silently, and the corruption then feeds itself on the next run. `_migrate_columns` remaps existing rows by column *name* whenever the header changes, so adding or reordering a column is safe.
+Programs & Fellowships are re-parsed every run alongside the regular listings, reusing the sndsh404 README already downloaded for that source — no extra HTTP call on the common path. If that source failed this run, fetching the README again just for programs is attempted once more; if that also fails, the run logs a warning and skips programs for that run rather than failing the whole sync.
