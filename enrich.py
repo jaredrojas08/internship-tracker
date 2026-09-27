@@ -28,6 +28,12 @@ KEYWORDS_BY_CATEGORY = {
 }
 
 
+def keywords_for_role(role_title):
+    """Keywords for a role, derived from its title alone. No fetch needed."""
+    category = "Game Programming" if config.is_game_role(role_title) else "Software Engineering"
+    return list(KEYWORDS_BY_CATEGORY.get(category, []))
+
+
 def category_for(listing):
     """Which Notion Category select this listing belongs in."""
     return "Game Programming" if listing.is_game else "Software Engineering"
@@ -37,7 +43,12 @@ def _enrich_one(listing, session):
     listing.category = category_for(listing)
     listing.resume_keywords = list(KEYWORDS_BY_CATEGORY.get(listing.category, []))
 
-    page = ats.fetch_page(listing.apply_url, session)
+    # A source that already returned the posting body (studio boards do)
+    # saves a fetch and works where the vanity URL is a JavaScript shell.
+    if listing.description:
+        page = ats.PageData(text=listing.description, ok=True)
+    else:
+        page = ats.fetch_page(listing.apply_url, session)
     if not page.ok:
         listing.skills = [GENERIC_SKILLS]
         return

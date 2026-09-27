@@ -22,6 +22,7 @@ import re
 import urllib.error
 import urllib.request
 
+import ats
 import config
 import parser as md
 
@@ -74,7 +75,9 @@ STUDIO_BOARDS = [
 ]
 
 ENDPOINTS = {
-    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{}/jobs",
+    # content=true returns every posting's body in the same request, so a
+    # studio listing arrives already enriched and never needs a repair pass.
+    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{}/jobs?content=true",
     "ashby": "https://api.ashbyhq.com/posting-api/job-board/{}",
     "lever": "https://api.lever.co/v0/postings/{}?mode=json",
 }
@@ -130,6 +133,7 @@ def _normalize_greenhouse(payload):
             job.get("title", ""),
             (job.get("location") or {}).get("name", ""),
             job.get("absolute_url", ""),
+            ats.html_to_text(html.unescape(job.get("content", "") or "")),
         )
 
 
@@ -269,7 +273,8 @@ def fetch_studio_listings():
                 failures.append(f"{display} ({error})")
                 continue
             scanned += len(jobs)
-            for title, location, url in jobs:
+            for title, location, url, *rest in jobs:
+                description = rest[0] if rest else ""
                 if not url or not is_relevant(title, location):
                     continue
                 listings.append(
@@ -282,6 +287,7 @@ def fetch_studio_listings():
                         # Anything from a studio board counts as game work, even
                         # when the title has no game keyword in it.
                         from_game_studio=True,
+                        description=description,
                     )
                 )
 
