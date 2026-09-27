@@ -22,6 +22,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 import config
+import parser as md_parser
 
 log = logging.getLogger(__name__)
 
@@ -44,14 +45,8 @@ def is_applied(row):
 
 
 def needs_follow_up(row, as_of=None):
-    """True for an application submitted long enough ago to be worth chasing.
-
-    Rows whose link has since gone DEAD or CLOSED are excluded -- those aren't
-    waiting on a reply, they're over.
-    """
+    """True for an application submitted long enough ago to be worth chasing."""
     if not is_applied(row):
-        return False
-    if row.get("Link Status") in ("DEAD", "CLOSED"):
         return False
     applied = _date(row.get("Applied Date"))
     if applied is None:
@@ -73,30 +68,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
     """
     as_of = as_of or config.today()
 
-    # A listing can arrive already dead: upstream edits a row, its identity key
-    # changes, and it re-enters as "new" even though the posting is gone. Those
-    # still land on the sheet (sunk to the bottom) but must never be announced —
-    # a notification is a claim that there is something to apply to.
-    unapplicable = {
-        row["listing"].key
-        for row in rows
-        if row.get("listing") is not None
-        and row.get("Link Status") in ("DEAD", "CLOSED")
-    }
-    suppressed = [l for l in new_listings if l.key in unapplicable]
-    new_listings = [l for l in new_listings if l.key not in unapplicable]
-    if suppressed:
-        log.info(
-            "Suppressed %d new listing(s) from the digest — dead or closed on arrival",
-            len(suppressed),
-        )
-
     follow_ups = [r for r in rows if needs_follow_up(r, as_of)]
-    dead_applied = [
-        r
-        for r in rows
-        if is_applied(r) and r.get("Link Status") in ("DEAD", "CLOSED")
-    ]
     soon = []
     for row in rows:
         due = _date(row.get("Deadline"))
@@ -106,7 +78,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
 
     games = [l for l in new_listings if l.is_game]
 
-    if not (new_listings or follow_ups or dead_applied or soon or warnings):
+    if not (new_listings or follow_ups or soon or warnings):
         if not config.NOTIFY_ON_QUIET_DAYS:
             return None
         return _quiet_digest(rows, as_of, totals=totals)
@@ -147,14 +119,6 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
             )
         )
 
-    if dead_applied:
-        parts.append(
-            _section(
-                f"⚠️ {len(dead_applied)} role(s) you applied to are now closed",
-                [f"{r['Company']} — {r['Role']}" for r in dead_applied],
-            )
-        )
-
     if dropped:
         parts.append(f"🗑️ Removed {len(dropped)} listing(s) you unchecked.")
 
@@ -162,7 +126,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
         open_roles, total_applied = totals
     else:
         total_applied = sum(1 for r in rows if is_applied(r))
-        open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
+        open_roles = len(rows)
     parts.append(f"{open_roles} open · {total_applied} applied")
 
     # Games are counted separately in the headline, so pass only the remainder
@@ -184,7 +148,7 @@ def _quiet_digest(rows, as_of, totals=None):
         open_roles, applied = totals
     else:
         applied = sum(1 for r in rows if is_applied(r))
-        open_roles = sum(1 for r in rows if r.get("Link Status") not in ("DEAD", "CLOSED"))
+        open_roles = len(rows)
 
     upcoming = []
     for row in rows:
@@ -252,6 +216,44 @@ def _date(value):
 # --- Cadence ----------------------------------------------------------------
 
 
+# The fields _fmt_listing and the game/remote split actually read. Held in
+# digest_state.json between runs so a listing found at 3am is still announced
+# by the digest that fires at 6pm.
+PENDING_FIELDS = ("company", "role", "location", "apply_url", "salary",
+                  "from_game_studio")
+
+
+def _read_state(path):
+    """The digest state file as a dict. Anything unreadable reads as empty."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_state(path, last_sent, pending):
+    state = {"pending": pending}
+    if last_sent:
+        state["last_sent"] = last_sent
+    Path(path).write_text(json.dumps(state), encoding="utf-8")
+
+
+def _is_due(last_sent, as_of):
+    if not isinstance(last_sent, str):
+        return True
+    try:
+        sent_at = dt.datetime.fromisoformat(last_sent)
+    except (ValueError, TypeError):
+        return True
+    if sent_at.tzinfo is None:
+        # A naive timestamp could mean any timezone; nothing in this module
+        # ever writes one, so treat it as unusable rather than guessing which
+        # offset was meant.
+        return True
+    return as_of - sent_at >= dt.timedelta(hours=24)
+
+
 def digest_is_due(path, as_of=None):
     """True once a day has passed since the last digest, or none has ever sent.
 
@@ -260,53 +262,75 @@ def digest_is_due(path, as_of=None):
     instead of just sending one digest too many.
     """
     as_of = as_of or dt.datetime.now(dt.timezone.utc)
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return True
-    if not isinstance(data, dict):
-        return True
-    last_sent = data.get("last_sent")
-    if not isinstance(last_sent, str):
-        return True
-    try:
-        sent_at = dt.datetime.fromisoformat(last_sent)
-        if sent_at.tzinfo is None:
-            # A naive timestamp could mean any timezone; nothing in this
-            # module ever writes one, so treat it as unusable rather than
-            # guessing which offset was meant.
-            return True
-        return as_of - sent_at >= dt.timedelta(hours=24)
-    except (ValueError, TypeError):
-        return True
+    return _is_due(_read_state(path).get("last_sent"), as_of)
 
 
-def _mark_sent(path, as_of):
-    Path(path).write_text(json.dumps({"last_sent": as_of.isoformat()}), encoding="utf-8")
+def _merge_pending(stored, new_listings):
+    """Add this run's finds to the ones earlier runs are still holding."""
+    pending = [e for e in stored if isinstance(e, dict) and e.get("job_id")]
+    have = {e["job_id"] for e in pending}
+    for listing in new_listings:
+        if listing.job_id in have:
+            continue
+        have.add(listing.job_id)
+        entry = {"job_id": listing.job_id}
+        entry.update({f: getattr(listing, f) for f in PENDING_FIELDS})
+        pending.append(entry)
+    return pending
+
+
+def _pending_listings(pending):
+    """Rebuild Listings from the stored fields, for _fmt_listing to format."""
+    return [
+        md_parser.Listing(
+            company=entry.get("company", ""),
+            role=entry.get("role", ""),
+            location=entry.get("location", ""),
+            apply_url=entry.get("apply_url", ""),
+            salary=entry.get("salary", ""),
+            from_game_studio=bool(entry.get("from_game_studio")),
+        )
+        for entry in pending
+    ]
 
 
 def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGEST_STATE_PATH,
                         as_of=None, totals=None):
-    """Build and send the digest, but only once a day now that runs are hourly.
+    """Send one digest a day covering every listing found since the last one.
 
-    Source-failure warnings skip the gate and send right away: a broken source
-    is the one thing worth interrupting for, and the digest's silence is
-    supposed to mean nothing needs attention.
+    Runs are hourly and the digest is daily, so this run's finds are parked in
+    the state file and announced together when the gate opens. Dropping them
+    instead would lose 23 of every 24 runs' listings.
+
+    Source-failure warnings skip the gate and send right away, alone. They do
+    not consume the day's slot and do not announce the parked listings: a 3am
+    failure notice must not stand in for the real digest.
     """
     as_of = as_of or dt.datetime.now(dt.timezone.utc)
-    if not warnings and not digest_is_due(state_path, as_of):
-        log.info("Digest already sent within the last day; skipping.")
+    state = _read_state(state_path)
+    last_sent = state.get("last_sent")
+    pending = _merge_pending(state.get("pending", []), new_listings)
+
+    if not _is_due(last_sent, as_of):
+        _write_state(state_path, last_sent, pending)
+        if warnings:
+            digest = build_digest(rows, [], dropped, warnings=warnings, totals=totals)
+            return bool(digest and send(*digest))
+        log.info("Digest already sent within the last day; holding %d new listing(s).",
+                 len(pending))
         return False
 
-    digest = build_digest(rows, new_listings, dropped, warnings=warnings, totals=totals)
+    digest = build_digest(rows, _pending_listings(pending), dropped,
+                          warnings=warnings, totals=totals)
     if not digest:
+        _write_state(state_path, last_sent, pending)
         return False
-    delivered = send(*digest)
-    if not delivered:
-        # A failed or unconfigured send must not start the 24-hour cooldown:
-        # the next hourly run needs to retry, not go quiet for a day.
+    if not send(*digest):
+        # A failed or unconfigured send must not start the 24-hour cooldown or
+        # discard the backlog: the next hourly run needs to retry.
+        _write_state(state_path, last_sent, pending)
         return False
-    _mark_sent(state_path, as_of)
+    _write_state(state_path, as_of.isoformat(), [])
     return True
 
 

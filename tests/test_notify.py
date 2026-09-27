@@ -99,13 +99,123 @@ class TestSendDigestIfDue(unittest.TestCase):
         recorded = json.loads(self.path.read_text())
         self.assertEqual(recorded["last_sent"], self.now.isoformat())
 
-    def test_state_file_is_not_updated_when_delivery_fails(self):
+    def test_state_file_records_no_send_when_delivery_fails(self):
         with mock.patch("notify.send", return_value=[]):
             sent = notify.send_digest_if_due(
                 [], [make_listing()], [], state_path=self.path, as_of=self.now
             )
         self.assertFalse(sent)
-        self.assertFalse(self.path.exists())
+        # The cooldown must not start, but the listing must still be held so
+        # the retry an hour from now still has something to announce.
+        recorded = json.loads(self.path.read_text())
+        self.assertNotIn("last_sent", recorded)
+        self.assertEqual(len(recorded["pending"]), 1)
+
+
+class TestDigestCoversEverythingSinceTheLastOne(unittest.TestCase):
+    """Runs are hourly and the digest is daily, so a listing found in any of
+    the other 23 runs has to survive in the state file until the gate opens.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "digest_state.json"
+        self.now = datetime(2026, 9, 24, 18, 0, tzinfo=timezone.utc)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def gated(self, hours_ago=1):
+        self.path.write_text(json.dumps(
+            {"last_sent": (self.now - timedelta(hours=hours_ago)).isoformat()}))
+
+    def test_a_listing_found_while_gated_is_held_not_dropped(self):
+        self.gated()
+        with mock.patch("notify.send") as fake_send:
+            notify.send_digest_if_due([], [make_listing()], [],
+                                      state_path=self.path, as_of=self.now)
+        fake_send.assert_not_called()
+        self.assertEqual(len(json.loads(self.path.read_text())["pending"]), 1)
+
+    def test_the_next_due_digest_announces_every_held_listing(self):
+        self.gated()
+        for i in range(3):
+            notify.send_digest_if_due(
+                [], [make_listing(role=f"Intern {i}",
+                                  apply_url=f"https://x.com/jobs/{i}")],
+                [], state_path=self.path, as_of=self.now + timedelta(hours=i),
+            )
+
+        with mock.patch("notify.send", return_value=["discord"]) as fake_send:
+            sent = notify.send_digest_if_due([], [], [], state_path=self.path,
+                                             as_of=self.now + timedelta(hours=25))
+        self.assertTrue(sent)
+        _subject, body = fake_send.call_args[0]
+        for i in range(3):
+            self.assertIn(f"Intern {i}", body)
+
+    def test_a_sent_digest_clears_the_backlog(self):
+        self.gated()
+        notify.send_digest_if_due([], [make_listing()], [], state_path=self.path,
+                                  as_of=self.now)
+        with mock.patch("notify.send", return_value=["discord"]):
+            notify.send_digest_if_due([], [], [], state_path=self.path,
+                                      as_of=self.now + timedelta(hours=25))
+        self.assertEqual(json.loads(self.path.read_text())["pending"], [])
+
+    def test_the_same_listing_is_only_held_once(self):
+        self.gated()
+        for _ in range(3):
+            notify.send_digest_if_due([], [make_listing()], [],
+                                      state_path=self.path, as_of=self.now)
+        self.assertEqual(len(json.loads(self.path.read_text())["pending"]), 1)
+
+    def test_a_warning_bypass_does_not_consume_the_daily_slot(self):
+        self.gated()
+        notify.send_digest_if_due([], [make_listing()], [], state_path=self.path,
+                                  as_of=self.now)
+        with mock.patch("notify.send", return_value=["discord"]) as fake_send:
+            notify.send_digest_if_due(
+                [], [], [], warnings=["speedyapply: FAILED (timeout)"],
+                state_path=self.path, as_of=self.now + timedelta(minutes=30),
+            )
+        # The alert went out, but it carried no listings and left both the
+        # cooldown and the backlog alone.
+        _subject, body = fake_send.call_args[0]
+        self.assertIn("speedyapply", body)
+        self.assertNotIn("Gameplay Programmer Intern", body)
+        state = json.loads(self.path.read_text())
+        self.assertEqual(state["last_sent"], (self.now - timedelta(hours=1)).isoformat())
+        self.assertEqual(len(state["pending"]), 1)
+
+    def test_the_real_digest_still_fires_after_a_warning_bypass(self):
+        self.gated()
+        notify.send_digest_if_due([], [make_listing()], [], state_path=self.path,
+                                  as_of=self.now)
+        with mock.patch("notify.send", return_value=["discord"]):
+            notify.send_digest_if_due([], [], [], warnings=["speedyapply: FAILED"],
+                                      state_path=self.path, as_of=self.now)
+        with mock.patch("notify.send", return_value=["discord"]) as fake_send:
+            sent = notify.send_digest_if_due([], [], [], state_path=self.path,
+                                             as_of=self.now + timedelta(hours=25))
+        self.assertTrue(sent)
+        _subject, body = fake_send.call_args[0]
+        self.assertIn("Gameplay Programmer Intern", body)
+
+    def test_held_listings_keep_the_fields_the_digest_formats(self):
+        self.gated()
+        notify.send_digest_if_due(
+            [], [make_listing(location="Remote", salary="$50/hr",
+                              from_game_studio=True)],
+            [], state_path=self.path, as_of=self.now,
+        )
+        with mock.patch("notify.send", return_value=["discord"]) as fake_send:
+            notify.send_digest_if_due([], [], [], state_path=self.path,
+                                      as_of=self.now + timedelta(hours=25))
+        _subject, body = fake_send.call_args[0]
+        self.assertIn("🎮 New game roles", body)
+        self.assertIn("REMOTE", body)
+        self.assertIn("$50/hr", body)
 
 
 class TestFollowUpFromNotionShapedRows(unittest.TestCase):
