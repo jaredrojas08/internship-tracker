@@ -177,49 +177,49 @@ class Notion:
         return ids
 
     def rows_to_backfill(self, database_id: str, limit: int = 25) -> List[dict]:
-        """Existing rows missing Skill Requirements, newest first.
+        """Rows still missing any enrichment field, oldest first.
 
-        A page whose posting was unreachable on first fetch would otherwise
-        keep whatever placeholder it got forever. Capped per run so a bad
-        stretch of upstream failures heals gradually rather than reprocessing
-        the whole database at once.
-
-        Only skills decide whether a row queues. Most postings never print a
-        hiring address, so queueing on a missing recruiter would pin the same
-        rows at the front of the queue forever. A queued row still picks one
-        up if the page happens to carry it.
+        Oldest first on purpose. Newest first pinned the queue to a block of
+        rows whose pages cannot be read at all (programme landing pages, and
+        studio boards that publish a JavaScript vanity URL), so the same 25
+        came back every hour and the rest never got a turn.
         """
         out: List[dict] = []
         cursor: Optional[str] = None
         while True:
-            body = {
+            body: dict = {
                 "page_size": 100,
-                "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+                "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
             }
             if cursor:
                 body["start_cursor"] = cursor
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
             for row in page.get("results", []):
                 props = row.get("properties", {})
-                skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
-                recruiter = props.get(P_RECRUITER, {}).get("email") or ""
-                if skills:
+                needs = {
+                    "needs_skills": not _plain_text(props.get(P_SKILLS, {}).get("rich_text", [])),
+                    "needs_recruiter": not props.get(P_RECRUITER, {}).get("email"),
+                    "needs_keywords": not props.get(P_KEYWORDS, {}).get("multi_select"),
+                    "needs_notes": not _plain_text(props.get(P_NOTES, {}).get("rich_text", [])),
+                }
+                # Only a missing Skill Requirements earns a fetch. A recruiter
+                # address is rarely published and notes are often genuinely
+                # absent, so queueing on those would hold every row in the
+                # queue forever. The others ride along once the page is open.
+                if not needs["needs_skills"]:
                     continue
                 out.append({
                     "page_id": row["id"],
                     "url": props.get(P_PORTAL, {}).get("url") or "",
                     "company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
-                    "needs_skills": not skills,
-                    "needs_recruiter": not recruiter,
+                    "role": _plain_text(props.get(P_TITLE, {}).get("title", [])),
+                    **needs,
                 })
                 if limit and len(out) >= limit:
-                    log.info("%d rows queued for backfill (capped)", len(out))
                     return out
             if not page.get("has_more"):
-                break
+                return out
             cursor = page.get("next_cursor")
-        log.info("%d existing rows could be backfilled", len(out))
-        return out
 
     def rows_for_digest(self, database_id: str) -> Tuple[List[dict], int, int]:
         """Rows a digest could act on, plus the real database-wide totals.
@@ -298,18 +298,26 @@ class Notion:
         self._call("PATCH", f"/pages/{page_id}", json={
             "properties": {P_APPLIED_DATE: {"date": {"start": applied_date}}},
         })
+    def update_row(self, page_id: str, skills: str = "", recruiter: str = "",
+                   keywords: Optional[Sequence[str]] = None, notes: str = "") -> None:
+        """Fill in enrichment fields on an existing page.
 
-    def update_row(self, page_id: str, skills: str = "", recruiter: str = "") -> None:
-        """Patch only Skill Requirements and Recruiter Contact.
-
-        Backfill only repairs what enrichment missed. Applied, My Resume PDF,
-        Deadline and Notes are the user's own work and must survive untouched.
+        The signature is the allowlist: these four names are the only
+        properties this method can ever write. Applied, Applied Date,
+        Deadline and My Resume PDF belong to Jared, and backfill exists
+        precisely so a repair run cannot overwrite them.
         """
         props: Dict[str, dict] = {}
         if skills:
             props[P_SKILLS] = {"rich_text": [{"type": "text", "text": {"content": skills[:2000]}}]}
         if recruiter:
             props[P_RECRUITER] = {"email": recruiter}
+        if keywords:
+            props[P_KEYWORDS] = {"multi_select": [
+                {"name": k.replace(",", " ")[:100]} for k in keywords[:25]
+            ]}
+        if notes:
+            props[P_NOTES] = {"rich_text": [{"type": "text", "text": {"content": notes[:2000]}}]}
         if not props:
             return
         self._call("PATCH", f"/pages/{page_id}", json={"properties": props})

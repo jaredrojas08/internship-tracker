@@ -49,6 +49,9 @@ class Listing:
     recruiter: str = ""
     notes: str = ""
     deadline: str = ""            # ISO date, user-owned once written
+    # Set by a source that already has the posting text, so enrich.py does
+    # not refetch a page the listing call already returned.
+    description: str = ""
     applied: str = ""             # Notion's Applied select name; "" means "Not applied"
 
     @property

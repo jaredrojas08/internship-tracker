@@ -61,9 +61,9 @@ def select_new(listings, existing, tombstoned):
 def backfill(api, database_id, limit=25):
     """Repair existing rows whose posting page was unreachable on an earlier run.
 
-    Only Skill Requirements and Recruiter Contact are ever recovered, and only
-    the ones a row is actually missing. A row that still can't be read, or
-    whose posting still has nothing usable, is left exactly as it was.
+    A page that still cannot be read gets "See posting" written into Skill
+    Requirements. That is honest, and it takes the row out of the queue so an
+    unreadable listing cannot hold the backlog behind it forever.
     """
     rows = api.rows_to_backfill(database_id, limit)
     session = requests.Session()
@@ -72,22 +72,44 @@ def backfill(api, database_id, limit=25):
         try:
             page = ats.fetch_page(row["url"], session)
             if not page.ok:
+                api.update_row(row["page_id"], skills=enrich.GENERIC_SKILLS)
                 continue
-            skills = ats.extract_requirements(page.text) if row["needs_skills"] else ""
-            recruiter = ""
-            if row["needs_recruiter"]:
-                markup = page.html or page.text
-                recruiter = ats.extract_contact_email(markup)
-            if not skills and not recruiter:
-                continue
-            api.update_row(row["page_id"], skills=skills, recruiter=recruiter)
+            markup = page.html or page.text
+            fields = {"skills": ats.extract_requirements(page.text) or enrich.GENERIC_SKILLS}
+            if row.get("needs_recruiter"):
+                fields["recruiter"] = ats.extract_contact_email(markup)
+            if row.get("needs_notes"):
+                fields["notes"] = ats.extract_notes(page.text)
+            api.update_row(row["page_id"], **fields)
             repaired += 1
         except Exception as exc:  # noqa: BLE001 - one bad row must not lose the rest
-            log.error("failed to backfill %s (%s): %s", row.get("company", "?"),
-                      row.get("page_id", "?"), exc)
+            log.error("backfill failed for %s (%s): %s", row.get("company", ""), row["page_id"], exc)
     log.info("backfilled %d/%d flagged row(s)", repaired, len(rows))
     return repaired
 
+
+def fill_keywords(api, database_id, limit=200):
+    """Give rows their resume keywords, which need no page fetch.
+
+    Keywords come from the role's category, so every row can have them
+    whether or not its posting page can be read.
+    """
+    filled = 0
+    for row in api.rows_to_backfill(database_id, limit=0):
+        if not row.get("needs_keywords"):
+            continue
+        words = enrich.keywords_for_role(row.get("role", ""))
+        if not words:
+            continue
+        try:
+            api.update_row(row["page_id"], keywords=words)
+            filled += 1
+        except Exception as exc:  # noqa: BLE001
+            log.error("keyword fill failed for %s: %s", row["page_id"], exc)
+        if filled >= limit:
+            break
+    log.info("filled keywords on %d row(s)", filled)
+    return filled
 
 def stamp_applied_dates(api, database_id, as_of=None):
     """Record when a row was first seen as Applied. Never rewritten after that.
@@ -179,6 +201,9 @@ def main(argv=None):
         # Rows whose page was unreachable on an earlier run carry "See posting".
         # Re-fetch a capped batch of them so a transient failure heals itself.
         backfill(api, database_id, limit=25)
+        # Keywords come from the role title, so every row can have them
+        # without opening a page.
+        fill_keywords(api, database_id, limit=200)
         # Stamp before the digest is built, so a row marked Applied this run
         # already carries its date when the follow-up section is computed.
         stamp_applied_dates(api, database_id)

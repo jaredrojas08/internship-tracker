@@ -199,12 +199,11 @@ class TestBackfill(unittest.TestCase):
 
         self.assertEqual(repaired, 1)
         api.rows_to_backfill.assert_called_once_with("db1", 25)
-        api.update_row.assert_called_once_with(
-            "page-1", skills="Experience with Python programming",
-            recruiter="jobs@riotgames.com",
-        )
+        sent = api.update_row.call_args.kwargs
+        self.assertEqual(sent["skills"], "Experience with Python programming")
+        self.assertEqual(sent["recruiter"], "jobs@riotgames.com")
 
-    def test_leaves_row_untouched_when_the_page_is_unreachable(self):
+    def test_marks_an_unreachable_page_so_it_leaves_the_queue(self):
         api = mock.Mock()
         api.rows_to_backfill.return_value = [backfill_row()]
         with mock.patch("internship_tracker.ats.fetch_page",
@@ -212,7 +211,8 @@ class TestBackfill(unittest.TestCase):
             repaired = internship_tracker.backfill(api, "db1")
 
         self.assertEqual(repaired, 0)
-        api.update_row.assert_not_called()
+        # Marked, not skipped: the row must stop coming back every hour.
+        api.update_row.assert_called_once_with("page-1", skills="See posting")
 
     def test_only_recovers_the_field_flagged_as_missing(self):
         api = mock.Mock()
@@ -228,18 +228,19 @@ class TestBackfill(unittest.TestCase):
             internship_tracker.backfill(api, "db1")
 
         api.update_row.assert_called_once_with(
-            "page-1", skills="Experience with Python programming", recruiter="",
+            "page-1", skills="Experience with Python programming",
         )
 
-    def test_leaves_row_untouched_when_nothing_recoverable_is_found(self):
+    def test_marks_a_page_with_no_requirements_so_it_leaves_the_queue(self):
         api = mock.Mock()
         api.rows_to_backfill.return_value = [backfill_row()]
         page = ats.PageData(text="No recognisable section here.", html="", ok=True)
         with mock.patch("internship_tracker.ats.fetch_page", return_value=page):
             repaired = internship_tracker.backfill(api, "db1")
 
-        self.assertEqual(repaired, 0)
-        api.update_row.assert_not_called()
+        self.assertEqual(repaired, 1)
+        sent = api.update_row.call_args.kwargs
+        self.assertEqual(sent["skills"], "See posting")
 
     def test_default_limit_is_25(self):
         api = mock.Mock()

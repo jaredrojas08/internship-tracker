@@ -412,3 +412,71 @@ class TestDigestRowsCarryApplying(unittest.TestCase):
         rows, total, _ = self._api("Not applied", []).rows_for_digest("db1")
         self.assertEqual(rows, [])
         self.assertEqual(total, 1)
+
+
+class TestBackfillWidened(unittest.TestCase):
+    """Backfill fills the empty enrichment fields, and nothing the user owns."""
+
+    OWNED = {"Applied", "Applied Date", "Deadline", "My Resume PDF", "Title",
+             "Company", "Job ID", "Application Portal", "Posted", "Source", "Category", "Term"}
+
+    def test_update_row_can_never_touch_a_user_owned_property(self):
+        api = FakeNotion()
+        api.update_row("p1", skills="S", recruiter="r@x.com", keywords=["Unity"], notes="Pay: $30")
+        sent = set(api.calls[-1][2]["properties"])
+        self.assertEqual(sent, {"Skill Requirements", "Recruiter Contact",
+                                "Resume Keywords", "Notes"})
+        self.assertFalse(sent & self.OWNED)
+
+    def test_nothing_is_sent_when_there_is_nothing_to_fill(self):
+        api = FakeNotion()
+        api.update_row("p1")
+        self.assertEqual(api.calls, [])
+
+    def test_only_the_named_fields_are_sent(self):
+        api = FakeNotion()
+        api.update_row("p1", notes="Pay: $30")
+        self.assertEqual(set(api.calls[-1][2]["properties"]), {"Notes"})
+
+    def _queue_api(self, rows):
+        api = FakeNotion()
+        api.responses = [{"results": rows, "has_more": False}]
+        return api
+
+    def _row(self, skills="", keywords=None, notes="", email=None):
+        return {"id": "p", "properties": {
+            "Application Portal": {"url": "https://x/1"},
+            "Company": {"rich_text": [{"plain_text": "Acme"}]},
+            "Skill Requirements": {"rich_text": [{"plain_text": skills}] if skills else []},
+            "Resume Keywords": {"multi_select": keywords or []},
+            "Notes": {"rich_text": [{"plain_text": notes}] if notes else []},
+            "Recruiter Contact": {"email": email},
+        }}
+
+    def test_a_row_missing_only_keywords_does_not_earn_a_fetch(self):
+        # Keywords come from the role title, so they never justify opening a page.
+        api = self._queue_api([self._row(skills="S", notes="N", email="a@b.c")])
+        self.assertEqual(api.rows_to_backfill("db1", 25), [])
+
+    def test_a_row_missing_skills_is_queued(self):
+        api = self._queue_api([self._row(notes="N", email="a@b.c")])
+        self.assertEqual(len(api.rows_to_backfill("db1", 25)), 1)
+
+    def test_a_fully_populated_row_is_not_queued(self):
+        api = self._queue_api([self._row(skills="S", keywords=[{"name": "Unity"}],
+                                         notes="N", email="a@b.c")])
+        self.assertEqual(api.rows_to_backfill("db1", 25), [])
+
+    def test_the_queue_reports_which_fields_are_missing(self):
+        api = self._queue_api([self._row(email="a@b.c")])
+        row = api.rows_to_backfill("db1", 25)[0]
+        self.assertTrue(row["needs_skills"])
+        self.assertTrue(row["needs_keywords"])
+        self.assertTrue(row["needs_notes"])
+        self.assertFalse(row["needs_recruiter"])
+
+    def test_the_queue_works_oldest_first_so_it_cannot_stick(self):
+        api = self._queue_api([self._row()])
+        api.rows_to_backfill("db1", 25)
+        body = api.calls[-1][2]
+        self.assertEqual(body["sorts"][0]["direction"], "ascending")
