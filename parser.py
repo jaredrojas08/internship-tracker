@@ -40,7 +40,6 @@ class Listing:
     from_game_studio: bool = False
 
     # --- Notion-side fields, filled in by enrich.py -------------------------
-    portal_url: str = ""          # resolved employer page; falls back to apply_url
     posted_at: Optional[datetime] = None   # always tz-aware UTC
     # How much to trust posted_at: "scraped" | "commit" | "first_seen" | "day"
     posted_precision: str = "unknown"
@@ -92,9 +91,6 @@ class Listing:
         """True when no mainstream aggregator carried this listing."""
         found_in = self.source.lower()
         return not any(name in found_in for name in self.MAINSTREAM_SOURCES)
-
-    def keywords_cell(self):
-        return ", ".join(self.resume_keywords)
 
     def skills_cell(self):
         return ", ".join(self.skills)

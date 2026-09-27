@@ -153,6 +153,7 @@ class Notion:
         it stays stable across runs for a given posting.
         """
         ids: Set[str] = set()
+        rows_seen = 0
         cursor: Optional[str] = None
         while True:
             body = {"page_size": 100}
@@ -160,6 +161,7 @@ class Notion:
                 body["start_cursor"] = cursor
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
             for row in page.get("results", []):
+                rows_seen += 1
                 props = row.get("properties", {})
                 text = _plain_text(props.get(P_JOB_ID, {}).get("rich_text", []))
                 if text:
@@ -167,16 +169,30 @@ class Notion:
             if not page.get("has_more"):
                 break
             cursor = page.get("next_cursor")
+        # A populated database with no readable job ids means the column was
+        # renamed or cleared, not that the database is empty. Treating it as
+        # empty would append every listing again as new.
+        if rows_seen and not ids:
+            raise RuntimeError(
+                f"{rows_seen} row(s) in the database but none carry a {P_JOB_ID!r} "
+                "value: the dedup column has been renamed or emptied. Refusing to "
+                "run rather than re-adding every listing."
+            )
         log.info("database already holds %d job ids", len(ids))
         return ids
 
     def rows_to_backfill(self, database_id: str, limit: int = 25) -> List[dict]:
-        """Existing rows missing Skill Requirements or Recruiter Contact, newest first.
+        """Existing rows missing Skill Requirements, newest first.
 
         A page whose posting was unreachable on first fetch would otherwise
         keep whatever placeholder it got forever. Capped per run so a bad
         stretch of upstream failures heals gradually rather than reprocessing
         the whole database at once.
+
+        Only skills decide whether a row queues. Most postings never print a
+        hiring address, so queueing on a missing recruiter would pin the same
+        rows at the front of the queue forever. A queued row still picks one
+        up if the page happens to carry it.
         """
         out: List[dict] = []
         cursor: Optional[str] = None
@@ -192,7 +208,7 @@ class Notion:
                 props = row.get("properties", {})
                 skills = _plain_text(props.get(P_SKILLS, {}).get("rich_text", []))
                 recruiter = props.get(P_RECRUITER, {}).get("email") or ""
-                if skills and recruiter:
+                if skills:
                     continue
                 out.append({
                     "page_id": row["id"],
@@ -306,13 +322,11 @@ class Notion:
         def rt(value: str) -> dict:
             return {"rich_text": [{"type": "text", "text": {"content": value[:2000]}}]} if value else {"rich_text": []}
 
-        # The title links to the listing as the source published it. The
-        # Application Portal column holds the resolved employer page, so the
-        # row carries both: where it was found, and where to apply.
+        # The title links to the posting, and Application Portal repeats it as
+        # a plain url so a Notion view can show the link as its own column.
         title_text = {"content": listing.role[:2000]}
-        origin = listing.apply_url or listing.portal_url
-        if origin:
-            title_text["link"] = {"url": origin}
+        if listing.apply_url:
+            title_text["link"] = {"url": listing.apply_url}
 
         props = {
             P_TITLE: {"title": [{"type": "text", "text": title_text}]},
@@ -334,8 +348,8 @@ class Notion:
         if listing.source:
             props[P_SOURCE] = {"select": {"name": _select(listing.source)}}
         props[P_NICHE] = {"checkbox": listing.is_niche()}
-        if listing.portal_url or listing.apply_url:
-            props[P_PORTAL] = {"url": listing.portal_url or listing.apply_url}
+        if listing.apply_url:
+            props[P_PORTAL] = {"url": listing.apply_url}
         if listing.posted_at:
             props[P_POSTED] = {"date": {"start": listing.posted_at.isoformat()}}
         if listing.recruiter:

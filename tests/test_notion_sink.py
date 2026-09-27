@@ -140,7 +140,7 @@ def _row(page_id, skills="", recruiter="", company="Acme"):
 
 
 class TestBackfill(unittest.TestCase):
-    def test_only_rows_missing_skills_or_recruiter_come_back(self):
+    def test_only_rows_missing_skills_come_back(self):
         api = FakeNotion()
         complete = _row("complete", skills="Python", recruiter="a@b.com")
         missing_skills = _row("missing-skills", recruiter="a@b.com")
@@ -151,7 +151,23 @@ class TestBackfill(unittest.TestCase):
         out = api.rows_to_backfill("db1")
 
         page_ids = {row["page_id"] for row in out}
-        self.assertEqual(page_ids, {"missing-skills", "missing-recruiter"})
+        self.assertEqual(page_ids, {"missing-skills"})
+
+    def test_a_row_with_skills_but_no_recruiter_never_queues(self):
+        # Scraped recruiter addresses are rare. Queueing on them pinned the
+        # same handful of rows at the head of the queue run after run, so the
+        # rows still saying "See posting" never got a turn.
+        api = FakeNotion()
+        api.responses = [{"results": [_row("has-skills", skills="Python")],
+                          "has_more": False}]
+        self.assertEqual(api.rows_to_backfill("db1"), [])
+
+    def test_a_queued_row_still_picks_up_a_missing_recruiter(self):
+        api = FakeNotion()
+        api.responses = [{"results": [_row("no-skills")], "has_more": False}]
+        out = api.rows_to_backfill("db1")
+        self.assertTrue(out[0]["needs_skills"])
+        self.assertTrue(out[0]["needs_recruiter"])
 
     def test_limit_caps_how_many_rows_come_back(self):
         api = FakeNotion()
@@ -192,6 +208,32 @@ class TestExistingJobIdsPagination(unittest.TestCase):
         # The second query must have followed the cursor from the first page.
         second_call_body = api.calls[1][2]
         self.assertEqual(second_call_body["start_cursor"], "cursor-abc")
+
+
+class TestExistingJobIdsFloor(unittest.TestCase):
+    """A populated database reading as zero job ids is a schema incident, and
+    treating it as "nothing is here yet" would re-append every listing.
+    """
+
+    def test_populated_database_with_no_readable_job_ids_aborts(self):
+        api = FakeNotion()
+        blank = {"properties": {notion_sink.P_JOB_ID: {"rich_text": []}}}
+        api.responses = [{"results": [blank, blank], "has_more": False}]
+        with self.assertRaises(RuntimeError) as caught:
+            api.existing_job_ids("db1")
+        self.assertIn("Job ID", str(caught.exception))
+
+    def test_a_genuinely_empty_database_is_not_an_error(self):
+        api = FakeNotion()
+        api.responses = [{"results": [], "has_more": False}]
+        self.assertEqual(api.existing_job_ids("db1"), set())
+
+    def test_one_readable_id_among_blanks_is_enough_to_proceed(self):
+        api = FakeNotion()
+        blank = {"properties": {notion_sink.P_JOB_ID: {"rich_text": []}}}
+        api.responses = [{"results": [blank, _page_with_job_id("id-1")],
+                          "has_more": False}]
+        self.assertEqual(api.existing_job_ids("db1"), {"id-1"})
 
 
 def _page_with_job_id(job_id):
