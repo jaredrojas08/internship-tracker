@@ -23,6 +23,10 @@ REQUEST_TIMEOUT = 30
 # An application with no response after this long is worth chasing.
 FOLLOW_UP_AFTER_DAYS = 21
 
+# The full digest is daily, but a row marked Applying is waiting on Jared to
+# act, so it gets chased on its own faster clock.
+NAG_INTERVAL_HOURS = 2
+
 # Send a short heartbeat on days with nothing to report, so silence always
 # means "the run failed" rather than "nothing happened". Set the env var to
 # "false"/"0" to only hear from the digest when something actually changed.

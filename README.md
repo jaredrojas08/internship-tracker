@@ -99,6 +99,8 @@ The Notion database is a pull interface — only useful when you remember to ope
 - applications past the follow-up window
 - rows marked `Applying` with no resume attached yet, so the tailoring queue stays visible
 
+The full digest is daily. The `Applying` nag runs on its own two-hour clock, because a row marked `Applying` is waiting on you rather than on the scrape, and a day is too long to sit on that. Nagging does not consume the daily slot, and a full digest resets the nag clock so the same row is not named twice within a couple of hours. `config.NAG_INTERVAL_HOURS` is the knob.
+
 On a quiet day it sends a one-line heartbeat instead:
 
 ```

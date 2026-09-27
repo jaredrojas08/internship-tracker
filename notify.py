@@ -55,6 +55,12 @@ def needs_follow_up(row, as_of=None):
     return (as_of - applied).days >= config.FOLLOW_UP_AFTER_DAYS
 
 
+def awaiting_resume(rows):
+    """Rows marked Applying with nothing attached yet: the tailoring queue."""
+    return [r for r in rows
+            if r.get("Application") == "Applying" and not r.get("Has Resume")]
+
+
 def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=None):
     """Return (subject, body) summarising what needs attention, or None.
 
@@ -76,9 +82,7 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
             soon.append((due, row))
     soon.sort(key=lambda pair: pair[0])
 
-    # Marked Applying but nothing attached yet: the tailoring queue.
-    awaiting = [r for r in rows
-                if r.get("Application") == "Applying" and not r.get("Has Resume")]
+    awaiting = awaiting_resume(rows)
 
     games = [l for l in new_listings if l.is_game]
 
@@ -244,14 +248,16 @@ def _read_state(path):
     return data if isinstance(data, dict) else {}
 
 
-def _write_state(path, last_sent, pending):
+def _write_state(path, last_sent, pending, last_nag=None):
     state = {"pending": pending}
     if last_sent:
         state["last_sent"] = last_sent
+    if last_nag:
+        state["last_nag"] = last_nag
     Path(path).write_text(json.dumps(state), encoding="utf-8")
 
 
-def _is_due(last_sent, as_of):
+def _is_due(last_sent, as_of, hours=24):
     if not isinstance(last_sent, str):
         return True
     try:
@@ -263,7 +269,7 @@ def _is_due(last_sent, as_of):
         # ever writes one, so treat it as unusable rather than guessing which
         # offset was meant.
         return True
-    return as_of - sent_at >= dt.timedelta(hours=24)
+    return as_of - sent_at >= dt.timedelta(hours=hours)
 
 
 def digest_is_due(path, as_of=None):
@@ -321,13 +327,28 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
     as_of = as_of or dt.datetime.now(dt.timezone.utc)
     state = _read_state(state_path)
     last_sent = state.get("last_sent")
+    last_nag = state.get("last_nag")
     pending = _merge_pending(state.get("pending", []), new_listings)
 
     if not _is_due(last_sent, as_of):
-        _write_state(state_path, last_sent, pending)
+        _write_state(state_path, last_sent, pending, last_nag)
         if warnings:
             digest = build_digest(rows, [], dropped, warnings=warnings, totals=totals)
             return bool(digest and send(*digest))
+
+        # A row marked Applying is waiting on him, so it is chased between
+        # digests rather than held for up to a day.
+        awaiting = awaiting_resume(rows)
+        if awaiting and _is_due(last_nag, as_of, config.NAG_INTERVAL_HOURS):
+            body = _section(
+                f"📝 {len(awaiting)} row(s) marked Applying with no resume attached",
+                [f"{r['Company']} — {r['Role']}" for r in awaiting],
+            )
+            if send("Internship tracker: waiting on a resume", body):
+                _write_state(state_path, last_sent, pending, as_of.isoformat())
+                return True
+            return False
+
         log.info("Digest already sent within the last day; holding %d new listing(s).",
                  len(pending))
         return False
@@ -335,14 +356,16 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
     digest = build_digest(rows, _pending_listings(pending), dropped,
                           warnings=warnings, totals=totals)
     if not digest:
-        _write_state(state_path, last_sent, pending)
+        _write_state(state_path, last_sent, pending, last_nag)
         return False
     if not send(*digest):
         # A failed or unconfigured send must not start the 24-hour cooldown or
         # discard the backlog: the next hourly run needs to retry.
-        _write_state(state_path, last_sent, pending)
+        _write_state(state_path, last_sent, pending, last_nag)
         return False
-    _write_state(state_path, as_of.isoformat(), [])
+    # The nag clock resets too, so the full digest naming a row is not repeated
+    # by a nag two hours later.
+    _write_state(state_path, as_of.isoformat(), [], as_of.isoformat())
     return True
 
 
