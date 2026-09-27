@@ -71,7 +71,6 @@ The schema lives in `notion_sink.SCHEMA` — that dict is the source of truth; t
 | Source | select | Which list the listing came from |
 | Job ID | rich text | Dedup key, derived from the apply URL. Hidden from views, not from you. **Never rename or clear this column**: a populated database that reads back zero job ids aborts the run rather than re-adding all 745 rows |
 | Notes | rich text | Free text; catches deadlines the Deadline property can't hold (e.g. "rolling") |
-| Niche | checkbox | True if no mainstream aggregator carried this listing |
 | Deadline | date | Filled only when a page states one in machine-readable form (see below) |
 | **Applied Date** | date | Stamped once, the first time a row is set to `Applied`. Never rewritten after |
 
@@ -98,6 +97,7 @@ The Notion database is a pull interface — only useful when you remember to ope
 - new listings, with game roles called out first
 - deadlines within 14 days you haven't applied to
 - applications past the follow-up window
+- rows marked `Applying` with no resume attached yet, so the tailoring queue stays visible
 
 On a quiet day it sends a one-line heartbeat instead:
 
@@ -188,7 +188,7 @@ Marking a row `Rejected` is the softer option and needs no tombstone, since the 
 
 ### Sort order
 
-The script only ever appends pages; it never reorders the database. Sorting and filtering (by Category, Term, Applied, Niche, and so on) is a Notion view you set up yourself. What arrived today is in the digest; the database itself carries no new/seen marker.
+The script only ever appends pages; it never reorders the database. Sorting and filtering (by Category, Term, Applied, and so on) is a Notion view you set up yourself. What arrived today is in the digest; the database itself carries no new/seen marker.
 
 ## Local setup
 

@@ -264,3 +264,31 @@ class TestSummaryLineTotals(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestApplyingNag(unittest.TestCase):
+    """Rows marked Applying with no resume attached are the tailoring queue."""
+
+    def _rows(self, **kw):
+        base = {"Company": "Epic Games", "Role": "Gameplay Programmer Intern",
+                "Deadline": "", "Application": "Applying", "Applied Date": "",
+                "Has Resume": False}
+        base.update(kw)
+        return [base]
+
+    def test_applying_without_a_resume_is_nagged(self):
+        subject, body = notify.build_digest(self._rows(), [], [], totals=(745, 0))
+        self.assertIn("Applying", body)
+        self.assertIn("Epic Games", body)
+
+    def test_applying_with_a_resume_attached_is_not_nagged(self):
+        _, body = notify.build_digest(self._rows(**{"Has Resume": True}), [], [], totals=(745, 0))
+        self.assertNotIn("no resume attached", body)
+
+    def test_a_row_not_marked_applying_is_not_nagged(self):
+        _, body = notify.build_digest(self._rows(Application="Not applied"), [], [], totals=(745, 0))
+        self.assertNotIn("no resume attached", body)
+
+    def test_the_nag_alone_is_enough_to_send_a_digest(self):
+        # A day with no new listings still sends if something is waiting on him.
+        self.assertIsNotNone(notify.build_digest(self._rows(), [], [], totals=(745, 0)))

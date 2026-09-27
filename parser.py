@@ -51,11 +51,6 @@ class Listing:
     deadline: str = ""            # ISO date, user-owned once written
     applied: str = ""             # Notion's Applied select name; "" means "Not applied"
 
-    # Lists that syndicate the same few hundred well-known postings. A listing
-    # none of them carried came from a smaller board, which is the interesting
-    # case.
-    MAINSTREAM_SOURCES = ("sndsh404", "speedyapply")
-
     @property
     def is_remote(self):
         return "remote" in self.location.lower()
@@ -86,11 +81,6 @@ class Listing:
         fallback = ("", f"{self.company.lower()}:{self.role.lower()}")
         host, ident = sources.url_fingerprint(self.apply_url) or fallback
         return f"{host}:{ident}"
-
-    def is_niche(self):
-        """True when no mainstream aggregator carried this listing."""
-        found_in = self.source.lower()
-        return not any(name in found_in for name in self.MAINSTREAM_SOURCES)
 
     def skills_cell(self):
         return ", ".join(self.skills)

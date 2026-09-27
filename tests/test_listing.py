@@ -38,15 +38,6 @@ class TestJobId(unittest.TestCase):
         self.assertEqual(a.job_id, b.job_id)
 
 
-class TestNiche(unittest.TestCase):
-    def test_studio_board_is_niche(self):
-        self.assertTrue(make(source="studios").is_niche())
-
-    def test_github_aggregator_is_not_niche(self):
-        self.assertFalse(make(source="speedyapply").is_niche())
-        self.assertFalse(make(source="sndsh404").is_niche())
-
-
 class TestTerm(unittest.TestCase):
     def test_role_naming_a_term_carries_it(self):
         listing = make(role="Winter 2027 Co-op")
