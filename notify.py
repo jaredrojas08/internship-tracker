@@ -8,6 +8,9 @@ Channels are opt-in by secret. Set DISCORD_WEBHOOK_URL, or the SMTP_* vars for
 email, or neither (in which case this silently does nothing and the run is
 otherwise unaffected). A delivery failure never fails the run: the sheet is
 already written by the time this is called.
+
+DISCORD_NAG_WEBHOOK_URL sends the Applying reminder to its own channel. Unset,
+the reminder goes to DISCORD_WEBHOOK_URL with everything else.
 """
 
 import datetime as dt
@@ -344,7 +347,8 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
                 f"📝 {len(awaiting)} row(s) marked Applying with no resume attached",
                 [f"{r['Company']} — {r['Role']}" for r in awaiting],
             )
-            if send("Internship tracker: waiting on a resume", body):
+            if send("Internship tracker: waiting on a resume", body,
+                    webhook=os.environ.get("DISCORD_NAG_WEBHOOK_URL")):
                 _write_state(state_path, last_sent, pending, as_of.isoformat())
                 return True
             return False
@@ -372,13 +376,18 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
 # --- Delivery --------------------------------------------------------------
 
 
-def send(subject, body):
-    """Deliver to whichever channels are configured. Never raises."""
+def send(subject, body, webhook=None):
+    """Deliver to whichever channels are configured. Never raises.
+
+    `webhook` overrides the Discord destination, which is how the Applying
+    reminder reaches its own channel. Email has one address either way.
+    """
     delivered, attempted = [], []
 
-    if os.environ.get("DISCORD_WEBHOOK_URL"):
+    discord_url = webhook or os.environ.get("DISCORD_WEBHOOK_URL")
+    if discord_url:
         attempted.append("discord")
-        if _send_discord(subject, body):
+        if _send_discord(subject, body, discord_url):
             delivered.append("discord")
     if os.environ.get("SMTP_HOST") and os.environ.get("NOTIFY_EMAIL_TO"):
         attempted.append("email")
@@ -422,7 +431,7 @@ def _chunk(text, limit=DISCORD_LIMIT):
     return chunks
 
 
-def _send_discord(subject, body):
+def _send_discord(subject, body, url):
     chunks = _chunk(f"**{subject}**\n\n{body}")
     dropped = len(chunks) - MAX_DISCORD_MESSAGES
     if dropped > 0:
@@ -436,17 +445,17 @@ def _send_discord(subject, body):
             # identify themselves as part of the same digest.
             chunk = f"_(continued {index}/{total})_\n{chunk}"
             time.sleep(DISCORD_SEND_PAUSE)
-        if not _post_discord(chunk):
+        if not _post_discord(chunk, url):
             # Stop rather than keep posting: a failure mid-digest already means
             # the message is incomplete, and the rest would read as noise.
             return index > 1
     return True
 
 
-def _post_discord(message, retry=True):
+def _post_discord(message, url, retry=True):
     payload = json.dumps({"content": message}).encode()
     request = urllib.request.Request(
-        os.environ["DISCORD_WEBHOOK_URL"],
+        url,
         data=payload,
         headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
@@ -466,7 +475,7 @@ def _post_discord(message, retry=True):
             wait = _retry_after(exc)
             log.info("Discord rate-limited the digest; retrying in %.1fs", wait)
             time.sleep(wait)
-            return _post_discord(message, retry=False)
+            return _post_discord(message, url, retry=False)
         if exc.code in (401, 403, 404):
             log.warning(
                 "Discord rejected the webhook (HTTP %s). The URL is probably wrong, "
@@ -534,10 +543,19 @@ def send_test():
             "This is a test. Real digests only send when something actually changes.",
         ]
     )
-    delivered = send(subject, body)
+    delivered = bool(send(subject, body))
+
+    # A second webhook is a second channel with its own permissions, so it is
+    # verified separately rather than assumed to work.
+    nag_url = os.environ.get("DISCORD_NAG_WEBHOOK_URL")
+    if nag_url:
+        sent = _send_discord("Internship tracker: test message (Applying channel)",
+                             "**✅ The Applying reminder lands here.**", nag_url)
+        delivered = sent or delivered
+
     if not delivered:
         log.error(
             "No channel configured. Set DISCORD_WEBHOOK_URL, or the SMTP_* vars, "
             "then try again."
         )
-    return bool(delivered)
+    return delivered

@@ -46,6 +46,8 @@ jobs:
           # Digest delivery. Set whichever you want; unset means no digest,
           # and the run works normally either way.
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Optional second channel, for the Applying reminder only.
+          DISCORD_NAG_WEBHOOK_URL: ${{ secrets.DISCORD_NAG_WEBHOOK_URL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

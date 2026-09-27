@@ -123,6 +123,7 @@ Channels are opt-in by secret; set either, both, or neither:
 | Channel | Secrets |
 |---|---|
 | Discord | `DISCORD_WEBHOOK_URL` — create via Server Settings → Integrations → Webhooks |
+| Discord, Applying reminder | `DISCORD_NAG_WEBHOOK_URL` — a second webhook, on whichever channel the reminder should go to. Unset, the reminder goes to `DISCORD_WEBHOOK_URL` with everything else. |
 | Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `NOTIFY_EMAIL_TO` |
 
 With neither set the digest silently no-ops. Delivery failures are logged as warnings and never fail the run — the database is already written by then. Skip with `--no-notify`.

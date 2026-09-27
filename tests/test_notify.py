@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -356,3 +357,44 @@ class TestNagCadence(unittest.TestCase):
         self._state(last_sent=(self.now - timedelta(hours=25)).isoformat(), pending=[])
         self._send(self._rows())
         self.assertEqual(json.loads(self.path.read_text())["last_nag"], self.now.isoformat())
+
+
+class TestDiscordDestination(unittest.TestCase):
+    """Which channel a message lands in."""
+
+    MAIN = "https://discord.com/api/webhooks/main"
+    NAG = "https://discord.com/api/webhooks/nag"
+
+    def _urls(self, env, webhook=None):
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(notify, "_post_discord", return_value=True) as post:
+            notify.send("subject", "body", webhook=webhook)
+        return [call.args[1] for call in post.call_args_list]
+
+    def test_the_digest_goes_to_the_main_webhook(self):
+        self.assertEqual(self._urls({"DISCORD_WEBHOOK_URL": self.MAIN}), [self.MAIN])
+
+    def test_an_override_goes_to_its_own_webhook(self):
+        urls = self._urls({"DISCORD_WEBHOOK_URL": self.MAIN}, webhook=self.NAG)
+        self.assertEqual(urls, [self.NAG])
+
+    def test_an_unset_override_falls_back_to_the_main_webhook(self):
+        # The nag passes os.environ.get(...), which is None when the second
+        # channel was never configured. It must still be delivered.
+        urls = self._urls({"DISCORD_WEBHOOK_URL": self.MAIN}, webhook=None)
+        self.assertEqual(urls, [self.MAIN])
+
+    def test_the_nag_asks_for_the_nag_webhook(self):
+        rows = [{"Company": "Epic Games", "Role": "Gameplay Programmer Intern",
+                 "Deadline": "", "Application": "Applying", "Applied Date": "",
+                 "Has Resume": False}]
+        now = datetime(2026, 9, 27, 18, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "digest_state.json"
+            path.write_text(json.dumps({"last_sent": (now - timedelta(hours=1)).isoformat(),
+                                        "pending": []}))
+            with mock.patch.dict(os.environ, {"DISCORD_NAG_WEBHOOK_URL": self.NAG}, clear=True), \
+                 mock.patch.object(notify, "send", return_value=["discord"]) as sender:
+                notify.send_digest_if_due(rows, [], [], state_path=path, as_of=now,
+                                          totals=(743, 0))
+        self.assertEqual(sender.call_args.kwargs["webhook"], self.NAG)
