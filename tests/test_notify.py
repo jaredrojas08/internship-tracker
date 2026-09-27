@@ -292,3 +292,67 @@ class TestApplyingNag(unittest.TestCase):
     def test_the_nag_alone_is_enough_to_send_a_digest(self):
         # A day with no new listings still sends if something is waiting on him.
         self.assertIsNotNone(notify.build_digest(self._rows(), [], [], totals=(745, 0)))
+
+
+class TestNagCadence(unittest.TestCase):
+    """The Applying nag runs on its own 2-hour clock, separate from the digest."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "digest_state.json"
+        self.now = datetime(2026, 9, 27, 18, 0, tzinfo=timezone.utc)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def _state(self, **kw):
+        self.path.write_text(json.dumps(kw))
+
+    def _rows(self, has_resume=False):
+        return [{"Company": "Epic Games", "Role": "Gameplay Programmer Intern",
+                 "Deadline": "", "Application": "Applying", "Applied Date": "",
+                 "Has Resume": has_resume}]
+
+    def _send(self, rows, **kw):
+        with mock.patch.object(notify, "send", return_value=["discord"]) as sender:
+            sent = notify.send_digest_if_due(rows, [], [], state_path=self.path,
+                                             as_of=self.now, totals=(743, 0), **kw)
+        return sent, sender
+
+    def test_nag_fires_between_daily_digests(self):
+        # Digest went an hour ago, so the daily gate is shut, but a row is waiting.
+        self._state(last_sent=(self.now - timedelta(hours=1)).isoformat(), pending=[])
+        sent, sender = self._send(self._rows())
+        self.assertTrue(sent)
+        self.assertIn("no resume attached", sender.call_args[0][1])
+
+    def test_nag_holds_for_two_hours_after_nagging(self):
+        self._state(last_sent=(self.now - timedelta(hours=1)).isoformat(),
+                    last_nag=(self.now - timedelta(minutes=30)).isoformat(), pending=[])
+        sent, sender = self._send(self._rows())
+        self.assertFalse(sent)
+        sender.assert_not_called()
+
+    def test_nag_fires_again_after_two_hours(self):
+        self._state(last_sent=(self.now - timedelta(hours=1)).isoformat(),
+                    last_nag=(self.now - timedelta(hours=3)).isoformat(), pending=[])
+        sent, _ = self._send(self._rows())
+        self.assertTrue(sent)
+
+    def test_no_nag_when_nothing_is_waiting(self):
+        self._state(last_sent=(self.now - timedelta(hours=1)).isoformat(), pending=[])
+        sent, sender = self._send(self._rows(has_resume=True))
+        self.assertFalse(sent)
+        sender.assert_not_called()
+
+    def test_nagging_does_not_consume_the_daily_slot(self):
+        self._state(last_sent=(self.now - timedelta(hours=1)).isoformat(), pending=[])
+        self._send(self._rows())
+        self.assertEqual(json.loads(self.path.read_text())["last_sent"],
+                         (self.now - timedelta(hours=1)).isoformat())
+
+    def test_the_daily_digest_also_resets_the_nag_clock(self):
+        # Otherwise the full digest names the row, then a nag repeats it 2h later.
+        self._state(last_sent=(self.now - timedelta(hours=25)).isoformat(), pending=[])
+        self._send(self._rows())
+        self.assertEqual(json.loads(self.path.read_text())["last_nag"], self.now.isoformat())
