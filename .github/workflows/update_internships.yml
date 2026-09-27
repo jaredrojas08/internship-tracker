@@ -15,6 +15,12 @@ on:
 permissions:
   contents: write
 
+# An overlapping run would race on the Notion write and the state commit.
+# Queue instead of cancel: a run mid-batch should finish, not be killed.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -64,7 +70,9 @@ jobs:
 
           # digest_state.json only exists once a digest has fired; guard the add.
           for f in removed.json digest_state.json; do
-            [ -f "$f" ] && git add "$f"
+            if [ -f "$f" ]; then
+              git add "$f"
+            fi
           done
 
           if git diff --cached --quiet; then
