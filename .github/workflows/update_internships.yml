@@ -58,7 +58,10 @@ jobs:
             python internship_tracker.py --notion
           fi
 
+      # Runs even on a failed sync: the digest backlog is held in
+      # digest_state.json, and losing it would lose the listings with it.
       - name: Commit updated state files
+        if: always()
         run: |
           set -euo pipefail
           # Commits are authored as Jared: this is his automation acting on his
@@ -66,7 +69,7 @@ jobs:
           git config user.name "jaredrojas08"
           git config user.email "jaredrojas08@gmail.com"
 
-          # digest_state.json only exists once a digest has fired; guard the add.
+          # digest_state.json only exists once a run has found something; guard the add.
           for f in removed.json digest_state.json; do
             if [ -f "$f" ]; then
               git add "$f"

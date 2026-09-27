@@ -63,13 +63,13 @@ The schema lives in `notion_sink.SCHEMA` — that dict is the source of truth; t
 | Application Portal | url | Apply link |
 | Resume Keywords | multi-select | Keywords `enrich` pulled from the posting |
 | Skill Requirements | rich text | Requirements section scraped from the posting page |
-| Posted | date | When the listing first appeared, or when scraped if the source doesn't say |
+| Posted | date | The employer's own `datePosted` when the page publishes one, otherwise the run that first saw the listing (`first_seen`). Never blank, because Hours Since Posted is what the Recent view sorts on |
 | Hours Since Posted | formula | `dateBetween(now(), Posted, "hours")` — self-updating, no write needed |
 | Recruiter Contact | email | Scraped from the posting page when present |
 | **Applied** | select | `Not applied` (default) / `Applying` / `Applied` / `Interviewing` / `Offer` / `Rejected` |
 | My Resume PDF | files | Yours to attach; the script never touches it |
 | Source | select | Which list the listing came from |
-| Job ID | rich text | Dedup key, derived from the apply URL. Hidden from views, not from you |
+| Job ID | rich text | Dedup key, derived from the apply URL. Hidden from views, not from you. **Never rename or clear this column**: a populated database that reads back zero job ids aborts the run rather than re-adding all 745 rows |
 | Notes | rich text | Free text; catches deadlines the Deadline property can't hold (e.g. "rolling") |
 | Niche | checkbox | True if no mainstream aggregator carried this listing |
 | Deadline | date | Filled only when a page states one in machine-readable form (see below) |
@@ -77,7 +77,7 @@ The schema lives in `notion_sink.SCHEMA` — that dict is the source of truth; t
 
 **Applied**, **My Resume PDF**, and **Deadline** (when you type over it) are yours; the script reads them but never overwrites a value you set. Job ID, not row position, is how a listing is recognized across runs, so sorting or filtering the database view never breaks the sync.
 
-Programs & Fellowships share this same database and shape: `parser.programs_to_listings` maps Organization → Company, Opportunity → Title, tags every row Category `Program / Fellowship`, and folds Type plus any non-ISO Deadline into Notes. They're appended after the regular listings are enriched, not before, so enrichment (which recomputes Category and re-fetches the apply page) never overwrites them.
+Programs & Fellowships share this same database and shape: `parser.programs_to_listings` maps Organization → Company, Opportunity → Title, tags every row Category `Program / Fellowship`, and folds Type plus any non-ISO Deadline into Notes. They skip enrichment entirely, which is what keeps their Category and Notes intact, since enrichment recomputes Category from the role title and re-fetches the apply page.
 
 ### Deadline
 
@@ -110,6 +110,10 @@ That exists so **silence always means the run failed**, never "nothing happened"
 
 Set `NOTIFY_ON_QUIET_DAYS=false` to only hear from it when something actually changed.
 
+**One digest a day, covering every listing since the last one.** The scrape runs hourly but the digest fires once every 24 hours, so each run parks what it found in `digest_state.json` (which the workflow commits) and the next digest to pass the gate announces the whole backlog at once. A successful send clears it; a failed send leaves it, so the retry an hour later still has something to say.
+
+A source failure is the exception: it sends immediately, whatever the gate says. That alert carries **only** the warning, and does not start the 24-hour cooldown. Otherwise a 3am breakage notice would stand in for the day's real digest.
+
 Verify a new channel with `--test-notify`, which sends a clearly-labelled sample and exits.
 
 Channels are opt-in by secret; set either, both, or neither:
@@ -121,7 +125,11 @@ Channels are opt-in by secret; set either, both, or neither:
 
 With neither set the digest silently no-ops. Delivery failures are logged as warnings and never fail the run — the database is already written by then. Skip with `--no-notify`.
 
-There is no link checking in this pipeline: a listing's apply link is never re-fetched to see if the role is still open. `ats.py` does fetch each posting once, but only to scrape Skill Requirements and Recruiter Contact, not to classify link health.
+There is no link checking in this pipeline: a listing's apply link is never re-fetched to see if the role is still open. `ats.py` fetches each posting exactly once (on the run that first sees it, before it is written), and only to scrape Skill Requirements, Recruiter Contact and the posting date, not to classify link health.
+
+That ordering is load-bearing. Dedup against Notion runs *before* enrichment (`select_new`, then `enrich.enrich_all`), so a run that finds nothing new makes no outbound fetches at all. Enriching first meant ~735 fetches an hour to write zero pages, which is roughly 530,000 requests a month at other people's ATS servers and more Actions minutes than the free tier allows.
+
+The one exception is backfill: up to 25 rows a run whose Skill Requirements still say "See posting" get their page re-fetched, so a transient failure heals itself. A missing Recruiter Contact never queues a row: most postings simply don't print an address, and queueing on it pinned the same few rows at the head of the queue forever.
 
 ### Game roles
 
@@ -166,6 +174,18 @@ Three rules specific to this source:
 
 Handshake is not an option: it's behind Cornell SSO, has no public API, and automated access violates its terms.
 
+### Deleting a listing
+
+Dedup is against pages currently in the database, so deleting a page in Notion just makes the listing look new again on the next run. Record the Job ID instead:
+
+```bash
+./venv/bin/python internship_tracker.py --tombstone greenhouse.io:1234567
+```
+
+That appends to `removed.json`, which the workflow commits, and those ids are never written again. The Job ID is on the row itself (the column is hidden in most views, not removed). Several at once is fine: `--tombstone a b c`.
+
+Marking a row `Rejected` is the softer option and needs no tombstone, since the page still exists, so dedup skips it anyway.
+
 ### Sort order
 
 The script only ever appends pages; it never reorders the database. Sorting and filtering (by Category, Term, Applied, Niche, and so on) is a Notion view you set up yourself. What arrived today is in the digest; the database itself carries no new/seen marker.
@@ -187,6 +207,7 @@ cp .env.example .env      # then fill it in
 ./venv/bin/python internship_tracker.py --create-database  # one-time: create the database, print its id
 ./venv/bin/python internship_tracker.py --test-notify    # send a sample digest and exit
 ./venv/bin/python internship_tracker.py --notion --no-notify  # sync without sending a digest
+./venv/bin/python internship_tracker.py --tombstone JOB_ID  # never re-add a listing you deleted in Notion
 ```
 
 There's no dry-run preview for the Notion sink: `--notion` fetches, filters, and writes in one pass. To check the effect of a filter change without writing, read the run's log output — it reports unique-listing and new-listing counts before anything is sent to Notion — or temporarily add a print in `main()`.
@@ -219,6 +240,8 @@ After editing, run the tests (`./venv/bin/python -m unittest discover -s tests`)
 ## Failure behavior
 
 - No listings from any source → refuses to write, so a total parse failure can't wipe the database
+- Notion unreachable, rate limited past its retries, or otherwise erroring → the run writes nothing further, posts a 🚨 alert to Discord, and exits non-zero. Silence never means a failed sync
+- The `Job ID` column renamed or emptied → the run aborts. A populated database reading back zero job ids is a schema incident, and treating it as an empty database would append every listing a second time
 - Missing/renamed columns in the source table → refuses to write rather than producing garbage
 - The source added an `Added` column after this was built; the parser treats it as optional
 - A page that 429s or 5xxs is retried with backoff (`notion_sink.Notion._call`); one bad Notion request doesn't necessarily fail the run
