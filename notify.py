@@ -76,9 +76,13 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
             soon.append((due, row))
     soon.sort(key=lambda pair: pair[0])
 
+    # Marked Applying but nothing attached yet: the tailoring queue.
+    awaiting = [r for r in rows
+                if r.get("Application") == "Applying" and not r.get("Has Resume")]
+
     games = [l for l in new_listings if l.is_game]
 
-    if not (new_listings or follow_ups or soon or warnings):
+    if not (new_listings or follow_ups or soon or warnings or awaiting):
         if not config.NOTIFY_ON_QUIET_DAYS:
             return None
         return _quiet_digest(rows, as_of, totals=totals)
@@ -116,6 +120,14 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
                     f"{r['Applied Date']} — {r['Company']} — {r['Role']}"
                     for r in follow_ups
                 ],
+            )
+        )
+
+    if awaiting:
+        parts.append(
+            _section(
+                f"📝 {len(awaiting)} row(s) marked Applying with no resume attached",
+                [f"{r['Company']} — {r['Role']}" for r in awaiting],
             )
         )
 

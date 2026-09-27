@@ -37,7 +37,6 @@ P_RESUME = "My Resume PDF"
 P_SOURCE = "Source"
 P_JOB_ID = "Job ID"
 P_NOTES = "Notes"
-P_NICHE = "Niche"
 P_DEADLINE = "Deadline"
 P_APPLIED_DATE = "Applied Date"
 
@@ -69,10 +68,6 @@ SCHEMA = {
     P_SOURCE: {"select": {}},
     P_JOB_ID: {"rich_text": {}},
     P_NOTES: {"rich_text": {}},
-    # Ticked when no mainstream aggregator carried this listing -- see
-    # parser.Listing.is_niche. Filter the table on it for roles the big lists
-    # never surfaced.
-    P_NICHE: {"checkbox": {}},
     P_DEADLINE: {"date": {}},
     # Stamped once, the first time a row is seen as Applied. Never rewritten
     # after that -- see stamp_applied_date and rows_missing_applied_date.
@@ -254,7 +249,7 @@ class Notion:
                 total += 1
                 if applied == "Applied":
                     applied_count += 1
-                if not deadline and applied != "Applied":
+                if not deadline and applied not in ("Applied", "Applying"):
                     continue
                 out.append({
                     "Company": _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
@@ -262,6 +257,7 @@ class Notion:
                     "Deadline": deadline,
                     "Application": applied,
                     "Applied Date": (props.get(P_APPLIED_DATE, {}).get("date") or {}).get("start", ""),
+                    "Has Resume": bool(props.get(P_RESUME, {}).get("files")),
                 })
             if not page.get("has_more"):
                 break
@@ -347,7 +343,6 @@ class Notion:
         props[P_TERM] = {"select": {"name": _select(listing.term)}}
         if listing.source:
             props[P_SOURCE] = {"select": {"name": _select(listing.source)}}
-        props[P_NICHE] = {"checkbox": listing.is_niche()}
         if listing.apply_url:
             props[P_PORTAL] = {"url": listing.apply_url}
         if listing.posted_at:

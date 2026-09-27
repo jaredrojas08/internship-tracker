@@ -31,7 +31,7 @@ class TestSchema(unittest.TestCase):
         expected = {"Title", "Company", "Category", "Term", "Location",
                     "Application Portal", "Resume Keywords", "Skill Requirements",
                     "Posted", "Hours Since Posted", "Recruiter Contact", "Applied",
-                    "My Resume PDF", "Source", "Job ID", "Notes", "Niche", "Deadline",
+                    "My Resume PDF", "Source", "Job ID", "Notes", "Deadline",
                     "Applied Date"}
         self.assertEqual(set(notion_sink.SCHEMA), expected)
 
@@ -69,16 +69,6 @@ class TestAdd(unittest.TestCase):
         api.add("db1", make())
         body = api.calls[-1][2]
         self.assertEqual(body["properties"]["Applied"]["select"]["name"], "Not applied")
-
-    def test_studio_listing_is_marked_niche(self):
-        api = FakeNotion()
-        api.add("db1", make(source="studios"))
-        self.assertTrue(api.calls[-1][2]["properties"]["Niche"]["checkbox"])
-
-    def test_aggregator_listing_is_not_niche(self):
-        api = FakeNotion()
-        api.add("db1", make(source="speedyapply", from_game_studio=False))
-        self.assertFalse(api.calls[-1][2]["properties"]["Niche"]["checkbox"])
 
     def test_title_links_to_the_posting(self):
         api = FakeNotion()
@@ -393,3 +383,32 @@ class TestStampAppliedDate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDigestRowsCarryApplying(unittest.TestCase):
+    def _api(self, applied, files):
+        api = FakeNotion()
+        api.responses = [{"results": [{"properties": {
+            "Company": {"rich_text": [{"plain_text": "Epic Games"}]},
+            "Title": {"title": [{"plain_text": "Gameplay Programmer Intern"}]},
+            "Deadline": {"date": None},
+            "Applied": {"select": {"name": applied}},
+            "Applied Date": {"date": None},
+            "My Resume PDF": {"files": files},
+        }}], "has_more": False}]
+        return api
+
+    def test_an_applying_row_with_no_deadline_still_comes_back(self):
+        rows, total, _ = self._api("Applying", []).rows_for_digest("db1")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Application"], "Applying")
+        self.assertFalse(rows[0]["Has Resume"])
+
+    def test_an_attached_resume_is_reported(self):
+        rows, _, _ = self._api("Applying", [{"name": "resume.pdf"}]).rows_for_digest("db1")
+        self.assertTrue(rows[0]["Has Resume"])
+
+    def test_a_plain_row_with_no_deadline_is_still_skipped(self):
+        rows, total, _ = self._api("Not applied", []).rows_for_digest("db1")
+        self.assertEqual(rows, [])
+        self.assertEqual(total, 1)
