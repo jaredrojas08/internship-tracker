@@ -88,3 +88,54 @@ class TestStudioInternTitles(unittest.TestCase):
 
     def test_mba_internship_is_still_dropped(self):
         self.assertFalse(studios.is_relevant("Activision 2027 Summer Internships - MBA", self.US))
+
+
+class TestNothingDropsSilently(unittest.TestCase):
+    """A posting no rule recognises goes to Notion flagged for review, not away."""
+
+    def _speedy(self, role):
+        import sources
+        listings, _ = sources._parse_speedy_table(
+            ["Company", "Position", "Posting"],
+            [["Acme", role, '<a href="https://jobs.example.com/acme/123">Apply</a>']])
+        return listings
+
+    def test_unrecognised_aggregator_title_is_kept_for_review(self):
+        listings = self._speedy("Build Wrangler Intern")
+        self.assertEqual(len(listings), 1)
+        self.assertTrue(listings[0].needs_review)
+
+    def test_recognised_title_is_not_flagged(self):
+        self.assertFalse(self._speedy("Software Engineer Intern")[0].needs_review)
+
+    def test_deliberate_rules_still_drop(self):
+        self.assertEqual(self._speedy("Research Intern (PhD)"), [])
+
+    def test_studio_title_that_only_looks_early_career_is_flagged(self):
+        self.assertTrue(studios.needs_review("2027 Summer Trainee - Gameplay", "Playa Vista"))
+        self.assertTrue(studios.needs_review("Student Programmer, Summer 2027", "Austin, TX"))
+
+    def test_studio_full_time_titles_are_not_flagged(self):
+        for title in ["International Operations Manager", "Internal Tools Engineer",
+                      "Senior Gameplay Engineer",
+                      "Principal Engineer, Enterprise AI — Technical Fellow Office"]:
+            self.assertFalse(studios.needs_review(title, "Irvine, CA"), title)
+
+    def test_review_rows_get_their_own_category(self):
+        import enrich
+        import parser as md
+        listing = md.Listing("Acme", "Build Wrangler Intern", "", "https://x", needs_review=True)
+        self.assertEqual(enrich.category_for(listing), "Check: filtered out")
+
+
+class TestBoardProblemsRecorded(unittest.TestCase):
+    def test_failed_and_empty_boards_are_recorded(self):
+        from unittest import mock
+        # Keyed by board, not call order: boards are fetched on parallel threads.
+        results = {"good": ("Good", [("SWE Intern", "Austin, TX", "https://x/1")], ""),
+                   "empty": ("Empty", [], ""), "broken": ("Broken", [], "HTTP 404")}
+        with mock.patch.object(studios, "_fetch_board", side_effect=results.get), \
+             mock.patch.object(studios, "STUDIO_BOARDS", ["good", "empty", "broken"]):
+            studios.fetch_studio_listings()
+        self.assertEqual(studios.board_problems,
+                         ["Empty (0 jobs on the board)", "Broken (HTTP 404)"])

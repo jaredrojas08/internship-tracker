@@ -89,6 +89,14 @@ INTERN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Wider than INTERN_PATTERN on purpose. A title this catches and that pattern
+# misses is a wording the tracker has not seen, so it goes to Notion for review.
+EARLY_CAREER_HINT = re.compile(
+    r"\bintern(?!al|ation)|\bco-?op|\bapprentic|early.career|new.grad|graduate|student"
+    r"|university|campus|summer\s*'?20\d\d|20\d\d\s*summer|trainee|stagiaire|placement|fellowship",
+    re.IGNORECASE,
+)
+
 # Recruiting-team roles that mention early-career talent without being one.
 NOT_A_ROLE = re.compile(
     r"talent acquisition|recruit(er|ing)|talent business partner|program manager,",
@@ -273,19 +281,38 @@ def is_relevant(title, location):
     return True
 
 
+def needs_review(title, location):
+    """Looks early-career but matches no known intern wording."""
+    if INTERN_PATTERN.search(title) or not EARLY_CAREER_HINT.search(title):
+        return False
+    if NOT_A_ROLE.search(title) or not config.is_eligible(title):
+        return False
+    return not NON_US.search(location or "")
+
+
+# Boards that errored or came back empty on the last fetch, for the daily
+# digest. One broken board otherwise looks the same as no new postings.
+board_problems = []
+
+
 def fetch_studio_listings():
     """Query every studio board. Individual board failures are tolerated."""
     listings, failures, scanned = [], [], 0
+    board_problems.clear()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         for display, jobs, error in pool.map(_fetch_board, STUDIO_BOARDS):
             if error:
                 failures.append(f"{display} ({error})")
+                board_problems.append(f"{display} ({error})")
                 continue
+            if not jobs:
+                board_problems.append(f"{display} (0 jobs on the board)")
             scanned += len(jobs)
             for title, location, url, *rest in jobs:
                 description = rest[0] if rest else ""
-                if not url or not is_relevant(title, location):
+                review = needs_review(title, location)
+                if not url or not (review or is_relevant(title, location)):
                     continue
                 listings.append(
                     md.Listing(
@@ -298,6 +325,7 @@ def fetch_studio_listings():
                         # when the title has no game keyword in it.
                         from_game_studio=True,
                         description=description,
+                        needs_review=review,
                     )
                 )
 

@@ -398,3 +398,21 @@ class TestDiscordDestination(unittest.TestCase):
                 notify.send_digest_if_due(rows, [], [], state_path=path, as_of=now,
                                           totals=(743, 0))
         self.assertEqual(sender.call_args.kwargs["webhook"], self.NAG)
+
+
+class TestReviewSection(unittest.TestCase):
+    def test_flagged_listings_get_their_own_section(self):
+        flagged = make_listing(role="Build Wrangler Intern", needs_review=True, from_game_studio=True)
+        normal = make_listing(role="Gameplay Programmer Intern")
+        subject, body = notify.build_digest([], [flagged, normal], [], as_of=date(2026, 10, 5))
+        review_part = body.split("Didn't match the filter")[1]
+        self.assertIn("Build Wrangler Intern", review_part)
+        self.assertNotIn("Build Wrangler Intern", body.split("Didn't match the filter")[0])
+
+
+class TestBoardProblems(unittest.TestCase):
+    def test_board_problems_reach_the_daily_digest(self):
+        digest = notify.build_digest([], [], [], as_of=date(2026, 10, 5),
+                                     board_problems=["Activision (0 jobs on the board)"])
+        self.assertIsNotNone(digest)
+        self.assertIn("Activision (0 jobs on the board)", digest[1])

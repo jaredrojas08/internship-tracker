@@ -36,6 +36,8 @@ def keywords_for_role(role_title):
 
 def category_for(listing):
     """Which Notion Category select this listing belongs in."""
+    if listing.needs_review:
+        return "Check: filtered out"
     return "Game Programming" if listing.is_game else "Software Engineering"
 
 

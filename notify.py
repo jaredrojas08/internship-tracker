@@ -64,7 +64,8 @@ def awaiting_resume(rows):
             if r.get("Application") == "Applying" and not r.get("Has Resume")]
 
 
-def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=None):
+def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=None,
+                 board_problems=()):
     """Return (subject, body) summarising what needs attention, or None.
 
     Returns None when there is nothing actionable, so a quiet day sends no
@@ -87,9 +88,12 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
 
     awaiting = awaiting_resume(rows)
 
+    review = [l for l in new_listings if l.needs_review]
+    new_listings = [l for l in new_listings if not l.needs_review]
     games = [l for l in new_listings if l.is_game]
 
-    if not (new_listings or follow_ups or soon or warnings or awaiting):
+    if not (new_listings or review or follow_ups or soon or warnings or awaiting
+            or board_problems):
         if not config.NOTIFY_ON_QUIET_DAYS:
             return None
         return _quiet_digest(rows, as_of, totals=totals)
@@ -100,6 +104,16 @@ def build_digest(rows, new_listings, dropped, as_of=None, warnings=(), totals=No
     # is missing, so it must not be buried under the listings.
     if warnings:
         parts.append(_section("🚨 Source problem — the list may be incomplete", list(warnings)))
+
+    if board_problems:
+        parts.append(_section("⚠️ Studio boards to check: broken, moved, or nothing posted",
+                              list(board_problems)))
+
+    if review:
+        parts.append(_section(
+            f"🔎 Didn't match the filter, check these ({len(review)}, "
+            "Category: Check: filtered out)",
+            [_fmt_listing(l) for l in review]))
 
     if games:
         parts.append(_section("🎮 New game roles", [_fmt_listing(l) for l in games]))
@@ -239,7 +253,7 @@ def _date(value):
 # digest_state.json between runs so a listing found at 3am is still announced
 # by the digest that fires at 6pm.
 PENDING_FIELDS = ("company", "role", "location", "apply_url", "salary",
-                  "from_game_studio")
+                  "from_game_studio", "needs_review")
 
 
 def _read_state(path):
@@ -310,13 +324,14 @@ def _pending_listings(pending):
             apply_url=entry.get("apply_url", ""),
             salary=entry.get("salary", ""),
             from_game_studio=bool(entry.get("from_game_studio")),
+            needs_review=bool(entry.get("needs_review")),
         )
         for entry in pending
     ]
 
 
 def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGEST_STATE_PATH,
-                        as_of=None, totals=None):
+                        as_of=None, totals=None, board_problems=()):
     """Send one digest a day covering every listing found since the last one.
 
     Runs are hourly and the digest is daily, so this run's finds are parked in
@@ -358,7 +373,7 @@ def send_digest_if_due(rows, new_listings, dropped, warnings=(), state_path=DIGE
         return False
 
     digest = build_digest(rows, _pending_listings(pending), dropped,
-                          warnings=warnings, totals=totals)
+                          warnings=warnings, totals=totals, board_problems=board_problems)
     if not digest:
         _write_state(state_path, last_sent, pending, last_nag)
         return False

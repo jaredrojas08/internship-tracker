@@ -38,6 +38,9 @@ class Listing:
     # titled "Software Engineer Intern" at Riot is game work regardless of
     # whether the title contains a game keyword.
     from_game_studio: bool = False
+    # No filter rule recognised the title. Kept and flagged rather than dropped,
+    # since a silent drop hid every Activision internship for 26 days.
+    needs_review: bool = False
 
     # --- Notion-side fields, filled in by enrich.py -------------------------
     posted_at: Optional[datetime] = None   # always tz-aware UTC
@@ -282,9 +285,12 @@ def parse_listings(markdown):
         if CLOSED_FLAG in role:
             closed += 1
             continue
+        needs_review = False
         if not config.matches_role_filter(strip_links(role)):
-            filtered += 1
-            continue
+            if not config.is_eligible(strip_links(role)):
+                filtered += 1
+                continue
+            needs_review = True
 
         apply_url = extract_url(cells[col_apply])
         if not apply_url:
@@ -303,6 +309,7 @@ def parse_listings(markdown):
                 location=strip_links(cells[col_location]),
                 apply_url=apply_url,
                 source_added=source_added,
+                needs_review=needs_review,
             )
         )
 

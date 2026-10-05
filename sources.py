@@ -81,9 +81,12 @@ def _parse_speedy_table(headers, rows):
         if md.CLOSED_FLAG in cells[idx_role] or not role:
             continue
         # Same relevance and eligibility rules as every other source.
+        needs_review = False
         if not config.matches_role_filter(role):
-            filtered += 1
-            continue
+            if not config.is_eligible(role):
+                filtered += 1
+                continue
+            needs_review = True
         url = md.extract_url(cells[idx_apply])
         if not url:
             continue
@@ -102,6 +105,7 @@ def _parse_speedy_table(headers, rows):
                 salary=md.strip_links(cells[idx_salary])
                 if idx_salary is not None and len(cells) > idx_salary
                 else "",
+                needs_review=needs_review,
             )
         )
 

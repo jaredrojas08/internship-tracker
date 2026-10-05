@@ -17,6 +17,7 @@ import notify
 import notion_sink
 import parser as md_parser
 import sources
+import studios
 import tombstones
 
 log = logging.getLogger("internship_tracker")
@@ -219,6 +220,7 @@ def main(argv=None):
         notify.send_digest_if_due(
             rows, new_listings, [], warnings=health_warnings,
             totals=(total_count, applied_count),
+            board_problems=studios.board_problems,
         )
     return 0
 
