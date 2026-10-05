@@ -250,7 +250,7 @@ class Notion:
             for row in page.get("results", []):
                 props = row.get("properties", {})
                 deadline = (props.get(P_DEADLINE, {}).get("date") or {}).get("start", "")
-                applied = props.get(P_APPLIED, {}).get("select", {}).get("name", "")
+                applied = (props.get(P_APPLIED, {}).get("select") or {}).get("name", "")
                 total += 1
                 if applied == "Applied":
                     applied_count += 1
@@ -286,7 +286,7 @@ class Notion:
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
             for row in page.get("results", []):
                 props = row.get("properties", {})
-                applied = props.get(P_APPLIED, {}).get("select", {}).get("name", "")
+                applied = (props.get(P_APPLIED, {}).get("select") or {}).get("name", "")
                 has_date = bool((props.get(P_APPLIED_DATE, {}).get("date") or {}).get("start"))
                 if applied == "Applied" and not has_date:
                     out.append({"page_id": row["id"]})

@@ -495,3 +495,23 @@ class TestBackfillWidened(unittest.TestCase):
         api.rows_to_backfill("db1", 25)
         body = api.calls[-1][2]
         self.assertEqual(body["sorts"][0]["direction"], "ascending")
+
+
+class TestBlankRow(unittest.TestCase):
+    """A row added by hand in Notion has an empty Applied select (null)."""
+
+    def _api(self):
+        api = FakeNotion()
+        api.responses = [{"results": [{"id": "blank", "properties": {
+            "Company": {"rich_text": []}, "Title": {"title": []},
+            "Deadline": {"date": None}, "Applied": {"select": None},
+            "Applied Date": {"date": None}, "My Resume PDF": {"files": []},
+        }}], "has_more": False}]
+        return api
+
+    def test_digest_rows_survive_a_blank_row(self):
+        rows, total, _ = self._api().rows_for_digest("db1")
+        self.assertEqual((rows, total), ([], 1))
+
+    def test_applied_date_scan_survives_a_blank_row(self):
+        self.assertEqual(self._api().rows_missing_applied_date("db1"), [])
