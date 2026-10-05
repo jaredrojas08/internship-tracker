@@ -95,6 +95,14 @@ NOT_A_ROLE = re.compile(
     re.IGNORECASE,
 )
 
+# Non-tech functions. Studio boards skip the keyword filter so art and design
+# roles get through, which also lets these in. A tech keyword in the title still wins.
+NON_TECH = re.compile(
+    r"\b(communications?|legal|customer experience|marketing|public relations"
+    r"|finance|accounting|human resources|sales|brand|social media)\b",
+    re.IGNORECASE,
+)
+
 # Locations to exclude. The tracker is US-focused, and studio boards are
 # global — Bangalore, Shanghai and Singapore postings dominate the intern
 # titles outside the US hiring season.
@@ -257,6 +265,8 @@ def is_relevant(title, location):
     if NOT_A_ROLE.search(title):
         return False
     if not config.is_eligible(title):
+        return False
+    if NON_TECH.search(title) and not config.matches_role_filter(title):
         return False
     if NON_US.search(location or ""):
         return False

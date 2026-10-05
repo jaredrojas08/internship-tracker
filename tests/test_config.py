@@ -1,6 +1,7 @@
 import unittest
 
 import config
+import studios
 
 
 class TestTermFor(unittest.TestCase):
@@ -37,3 +38,39 @@ class TestTermFor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRoleFilterKeepsTechRoles(unittest.TestCase):
+    """Titles seen dropped by the live aggregators in Oct 2026 with no keyword match."""
+
+    def test_tech_titles_without_software_or_engineer_are_kept(self):
+        for title in ["Tools Programmer Intern", "Engine Programmer Intern",
+                      "DevOps Intern", "Site Reliability Internship - Spring 2027",
+                      "Cloud Security Intern", "Firmware Intern",
+                      "Embedded Firmware Intern - Summer 2027",
+                      "Embedded SDET Co-Op Full Time Intern January-June 2027",
+                      "Global Technology Summer Analyst, Cybersecurity Analyst"]:
+            self.assertTrue(config.matches_role_filter(title), title)
+
+    def test_finance_and_operations_titles_stay_out(self):
+        for title in ["Macro Analyst Intern (Summer 2027, June start)",
+                      "Operations Management Intern", "Equity Research Analyst Intern"]:
+            self.assertFalse(config.matches_role_filter(title), title)
+
+
+class TestStudioBoardRelevance(unittest.TestCase):
+    US = "Cary, North Carolina, United States"
+
+    def test_non_tech_functions_are_dropped(self):
+        for title in ["Communications Intern", "EA SPORTS Communications Intern - Summer 2027",
+                      "Legal Specialist Intern, Approvals (JD) - Summer 2027",
+                      "Customer Experience & Operations Intern - Summer 2027"]:
+            self.assertFalse(studios.is_relevant(title, self.US), title)
+
+    def test_craft_and_adjacent_roles_are_kept(self):
+        for title in ["Tech Art Intern", "VFX Intern", "Level Design Intern",
+                      "Analytics Intern", "Product Management Intern", "Data Science Intern"]:
+            self.assertTrue(studios.is_relevant(title, self.US), title)
+
+    def test_a_tech_title_in_a_non_tech_area_is_kept(self):
+        self.assertTrue(studios.is_relevant("Software Engineer Intern, Communications", self.US))

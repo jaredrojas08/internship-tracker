@@ -95,6 +95,18 @@ ROLE_KEYWORDS = [
     "associate product",
     # Tech-org roles that don't say "software".
     "information technology",
+    # Found dropped by the live sources in Oct 2026: real software work with
+    # none of the words above in the title.
+    "programmer",
+    "programming",
+    "devops",
+    "site reliability",
+    "sre",
+    "cloud",
+    "cybersecurity",
+    "firmware",
+    "embedded",
+    "sdet",
 ]
 
 # --- Game development priority ---------------------------------------------
