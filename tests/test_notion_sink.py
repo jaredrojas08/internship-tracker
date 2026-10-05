@@ -39,7 +39,8 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(
             [(o["name"], o["color"]) for o in notion_sink.APPLIED_OPTIONS],
             [("Not applied", "default"), ("Applying", "yellow"), ("Applied", "blue"),
-             ("Interviewing", "purple"), ("Offer", "green"), ("Rejected", "red")],
+             ("Interviewing", "purple"), ("Offer", "green"), ("Rejected", "red"),
+             ("Skipped", "gray")],
         )
 
     def test_deadline_is_a_date_not_text(self):
@@ -158,6 +159,13 @@ class TestBackfill(unittest.TestCase):
         out = api.rows_to_backfill("db1")
         self.assertTrue(out[0]["needs_skills"])
         self.assertTrue(out[0]["needs_recruiter"])
+
+    def test_a_skipped_row_is_never_fetched(self):
+        api = FakeNotion()
+        skipped = _row("skipped")
+        skipped["properties"][notion_sink.P_APPLIED] = {"select": {"name": "Skipped"}}
+        api.responses = [{"results": [skipped, _row("open")], "has_more": False}]
+        self.assertEqual([r["page_id"] for r in api.rows_to_backfill("db1")], ["open"])
 
     def test_limit_caps_how_many_rows_come_back(self):
         api = FakeNotion()
@@ -407,6 +415,13 @@ class TestDigestRowsCarryApplying(unittest.TestCase):
     def test_an_attached_resume_is_reported(self):
         rows, _, _ = self._api("Applying", [{"name": "resume.pdf"}]).rows_for_digest("db1")
         self.assertTrue(rows[0]["Has Resume"])
+
+    def test_a_skipped_row_stays_out_even_with_a_deadline(self):
+        api = self._api("Skipped", [])
+        api.responses[0]["results"][0]["properties"]["Deadline"] = {"date": {"start": "2026-10-10"}}
+        rows, total, _ = api.rows_for_digest("db1")
+        self.assertEqual(rows, [])
+        self.assertEqual(total, 1)
 
     def test_a_plain_row_with_no_deadline_is_still_skipped(self):
         rows, total, _ = self._api("Not applied", []).rows_for_digest("db1")
