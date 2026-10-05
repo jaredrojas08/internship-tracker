@@ -84,7 +84,7 @@ ENDPOINTS = {
 
 # Word-boundary anchored so "International" can't match "intern".
 INTERN_PATTERN = re.compile(
-    r"\bintern\b|\binterns\b|\binternship\b|\bco-?op\b|\bapprentice\w*\b"
+    r"\bintern\b|\binterns\b|\binternships?\b|\bco-?ops?\b|\bapprentice\w*\b"
     r"|\bnew grad\b|\buniversity grad\w*\b|\bearly career\b",
     re.IGNORECASE,
 )

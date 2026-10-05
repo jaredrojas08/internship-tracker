@@ -74,3 +74,17 @@ class TestStudioBoardRelevance(unittest.TestCase):
 
     def test_a_tech_title_in_a_non_tech_area_is_kept(self):
         self.assertTrue(studios.is_relevant("Software Engineer Intern, Communications", self.US))
+
+
+class TestStudioInternTitles(unittest.TestCase):
+    US = "Playa Vista"
+
+    def test_plural_internships_and_co_ops_are_intern_titles(self):
+        # Activision titles every posting "2027 Summer Internships - <track>".
+        for title in ["Activision 2027 Summer Internships - Game Engineering",
+                      "Activision 2027 Summer Internships - Software Engineering",
+                      "2027 Winter Co-Ops - Software Development"]:
+            self.assertTrue(studios.is_relevant(title, self.US), title)
+
+    def test_mba_internship_is_still_dropped(self):
+        self.assertFalse(studios.is_relevant("Activision 2027 Summer Internships - MBA", self.US))
