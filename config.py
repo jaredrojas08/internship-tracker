@@ -80,7 +80,6 @@ ROLE_KEYWORDS = [
     "machine learning",
     "data scientist",
     "data science",
-    "data analyst",
     "quant",
     "quantitative",
     # Research/science roles that are ML work under another name.
@@ -102,10 +101,8 @@ ROLE_KEYWORDS = [
     "devops",
     "site reliability",
     "sre",
-    "cloud",
     "cybersecurity",
     "firmware",
-    "embedded",
     "sdet",
 ]
 
@@ -202,6 +199,10 @@ _DESIGN_TRACK = re.compile(
 )
 
 
+# Fields Jared excluded on 2026-10-05. Dropped outright, never sent for review.
+_EXCLUDED_FIELD = re.compile(r"\b(cloud|analysts?|embedded)\b", re.IGNORECASE)
+
+
 def requires_advanced_degree(role_title):
     """True if the role is gated on a graduate degree Jared won't have."""
     if not _ADVANCED_DEGREE.search(role_title):
@@ -214,6 +215,8 @@ def is_eligible(role_title):
     if requires_advanced_degree(role_title):
         return False
     if _INTERN_CONVERSION.search(role_title):
+        return False
+    if _EXCLUDED_FIELD.search(role_title):
         return False
     return not _DESIGN_TRACK.search(role_title)
 

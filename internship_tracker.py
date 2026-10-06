@@ -45,7 +45,27 @@ def parse_args(argv=None):
     return ap.parse_args(argv)
 
 
-def select_new(listings, existing, tombstoned):
+def _jobright_copy(listing, existing_titles):
+    """True when this listing and an existing row are the same posting via jobright.
+
+    jobright links never match an employer link, so that pair matches on company
+    and title. Other pairs keep matching on job id only: Raytheon posts one title
+    per city, and those are separate applications.
+    """
+    fingerprint = sources.title_fingerprint(listing.company, listing.role)
+    if not fingerprint:
+        return False
+    company, role = fingerprint
+    for (other_company, other_role), other_source in existing_titles.items():
+        if other_role != role or "jobright" not in (listing.source, other_source):
+            continue
+        # jobright writes "Electronic Arts (EA)" for the board's "Electronic Arts".
+        if company.startswith(other_company) or other_company.startswith(company):
+            return True
+    return False
+
+
+def select_new(listings, existing, tombstoned, existing_titles=None):
     """Listings Notion does not already hold and the user has not tombstoned.
 
     Runs before enrichment, not after. Enriching first meant fetching all 735
@@ -53,6 +73,7 @@ def select_new(listings, existing, tombstoned):
     budget and half a million requests at other people's ATS servers.
     """
     new = [l for l in listings if l.job_id not in existing]
+    new = [l for l in new if not _jobright_copy(l, existing_titles or {})]
     fresh = [l for l in new if l.job_id not in tombstoned]
     log.info("%d listing(s) already in Notion, %d tombstoned, %d new",
              len(listings) - len(new), len(new) - len(fresh), len(fresh))
@@ -185,11 +206,12 @@ def main(argv=None):
         database_id = config.require_env("NOTION_DATABASE_ID")
         api.ensure_schema(database_id)
         existing = api.existing_job_ids(database_id)
+        existing_titles = api.existing_title_fingerprints(database_id)
         tombstoned = tombstones.load()
 
         # Only new postings are fetched, so each one is fetched exactly once
         # over its lifetime rather than once an hour for as long as it is up.
-        fresh = select_new(listings, existing, tombstoned)
+        fresh = select_new(listings, existing, tombstoned, existing_titles)
         enrich.enrich_all(fresh)
 
         # Programs skip enrichment: it re-derives category from is_game and

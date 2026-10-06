@@ -46,10 +46,7 @@ class TestRoleFilterKeepsTechRoles(unittest.TestCase):
     def test_tech_titles_without_software_or_engineer_are_kept(self):
         for title in ["Tools Programmer Intern", "Engine Programmer Intern",
                       "DevOps Intern", "Site Reliability Internship - Spring 2027",
-                      "Cloud Security Intern", "Firmware Intern",
-                      "Embedded Firmware Intern - Summer 2027",
-                      "Embedded SDET Co-Op Full Time Intern January-June 2027",
-                      "Global Technology Summer Analyst, Cybersecurity Analyst"]:
+                      "Firmware Intern"]:
             self.assertTrue(config.matches_role_filter(title), title)
 
     def test_finance_and_operations_titles_stay_out(self):
@@ -139,3 +136,25 @@ class TestBoardProblemsRecorded(unittest.TestCase):
             studios.fetch_studio_listings()
         self.assertEqual(studios.board_problems,
                          ["Empty (0 jobs on the board)", "Broken (HTTP 404)"])
+
+
+class TestFieldsJaredExcluded(unittest.TestCase):
+    """Cloud, analyst and embedded roles: excluded by Jared on 2026-10-05."""
+
+    def test_excluded_fields_drop_everywhere(self):
+        for title in ["Cloud Security Intern", "Cloud Operations Intern",
+                      "Software Engineer Intern, Cloud Infrastructure",
+                      "Data Analyst Intern", "Global Technology Summer Analyst, Cybersecurity Analyst",
+                      "Quantitative Analyst Intern", "Embedded Software Engineering Intern",
+                      "Embedded Firmware Intern - Summer 2027"]:
+            self.assertFalse(config.is_eligible(title), title)
+            self.assertFalse(config.matches_role_filter(title), title)
+            self.assertFalse(studios.is_relevant(title, "Austin, TX"), title)
+
+    def test_excluded_fields_are_not_sent_for_review(self):
+        self.assertFalse(studios.needs_review("Cloud Student Intern 2027", "Austin, TX"))
+
+    def test_nearby_wanted_roles_survive(self):
+        for title in ["Software Engineer Intern", "Gameplay Engineer Intern",
+                      "Backend Software Engineer Intern", "DevOps Intern"]:
+            self.assertTrue(config.matches_role_filter(title), title)

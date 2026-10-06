@@ -119,6 +119,40 @@ def _age_to_note(cell):
 
 
 
+_JOBRIGHT_ROW = re.compile(
+    r"^\|\s*\*\*\[(?P<company>[^\]]+)\]\([^)]*\)\*\*\s*\|"
+    r"\s*\*\*\[(?P<role>[^\]]+)\]\((?P<url>[^)]+)\)\*\*\s*\|\s*(?P<location>[^|]*)\|"
+)
+
+
+def parse_jobright(markdown):
+    """jobright-ai/2026-Software-Engineer-Internship, a rolling list of the last few days.
+
+    Links go to jobright's own pages, not the employer's, so these rows match
+    other sources on company and title only (see select_new).
+    """
+    listings, filtered = [], 0
+    for line in markdown.splitlines():
+        row = _JOBRIGHT_ROW.match(line.strip())
+        if not row:
+            continue
+        role, location = row["role"].strip(), row["location"].strip()
+        if studios.NON_US.search(location):
+            continue
+        needs_review = False
+        if not config.matches_role_filter(role):
+            if not config.is_eligible(role):
+                filtered += 1
+                continue
+            needs_review = True
+        listings.append(md.Listing(
+            company=row["company"].strip(), role=role, location=location,
+            apply_url=row["url"].strip(), source="jobright", needs_review=needs_review,
+        ))
+    log.info("jobright: %d kept, %d filtered out", len(listings), filtered)
+    return listings
+
+
 SOURCES = [
     {
         "name": "sndsh404",
@@ -137,6 +171,13 @@ SOURCES = [
         # Studios post summer internships Sept–Jan. Empty for most of the year
         # is the calendar, not a breakage, so it must not raise a health alarm.
         "allow_empty": True,
+    },
+    {
+        # Last, so a posting also carried by a list with the employer's own link
+        # keeps that link when deduplicate() merges them.
+        "name": "jobright",
+        "url": "https://raw.githubusercontent.com/jobright-ai/2026-Software-Engineer-Internship/master/README.md",
+        "parse": parse_jobright,
     },
 ]
 

@@ -515,3 +515,17 @@ class TestBlankRow(unittest.TestCase):
 
     def test_applied_date_scan_survives_a_blank_row(self):
         self.assertEqual(self._api().rows_missing_applied_date("db1"), [])
+
+
+class TestExistingTitleFingerprints(unittest.TestCase):
+    def test_maps_company_and_title_to_source(self):
+        api = FakeNotion()
+        api.responses = [{"results": [{"properties": {
+            "Company": {"rich_text": [{"plain_text": "Ramp"}]},
+            "Title": {"title": [{"plain_text": "Software Engineering Intern, Backend"}]},
+            "Source": {"select": {"name": "jobright"}},
+        }}, {"properties": {
+            "Company": {"rich_text": []}, "Title": {"title": []}, "Source": {"select": None},
+        }}], "has_more": False}]
+        self.assertEqual(api.existing_title_fingerprints("db1"),
+                         {("ramp", "softwareengineeringinternbackend"): "jobright"})

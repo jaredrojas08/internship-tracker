@@ -53,6 +53,7 @@ class TestMainRun(unittest.TestCase):
     def run_main(self, listings, existing, argv=("--notion", "--no-notify")):
         api = mock.Mock()
         api.existing_job_ids.return_value = existing
+        api.existing_title_fingerprints.return_value = {}
         api.add_all.side_effect = lambda db, batch: list(batch)
         api.rows_to_backfill.return_value = []
         api.rows_missing_applied_date.return_value = []
@@ -314,3 +315,56 @@ class TestCreateDatabase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+JOBRIGHT_MARKDOWN = """
+| Company | Job Title | Location | Work Model | Date Posted |
+| ----- | --------- |  --------- | ---- | ------- |
+| **[Ramp](https://ramp.com)** | **[Software Engineering Intern, Backend](https://jobright.ai/jobs/info/6ac4aaa?utm_campaign=1079&utm_source=git)** | New York, NY, United States | On Site | Oct 05 |
+| **[Ludia](http://www.ludia.com)** | **[Game Programming Intern](https://jobright.ai/jobs/info/6ac3bbb?utm_campaign=1079)** | Montréal, QC, Canada | Hybrid | Oct 05 |
+| **[Acme](https://acme.com)** | **[Cloud Engineer Intern](https://jobright.ai/jobs/info/6ac3ccc)** | Austin, TX, United States | Remote | Oct 05 |
+"""
+
+
+class TestJobright(unittest.TestCase):
+    def test_parses_us_rows_and_applies_the_filters(self):
+        import sources
+        listings = sources.parse_jobright(JOBRIGHT_MARKDOWN)
+        self.assertEqual([(l.company, l.role, l.source) for l in listings],
+                         [("Ramp", "Software Engineering Intern, Backend", "jobright")])
+        self.assertEqual(listings[0].location, "New York, NY, United States")
+        self.assertTrue(listings[0].apply_url.startswith("https://jobright.ai/jobs/info/6ac4aaa"))
+
+    def test_a_jobright_copy_of_an_existing_row_is_skipped(self):
+        listing = make("https://jobright.ai/jobs/info/abc", source="jobright")
+        existing_titles = {sources_fp(listing): "speedyapply"}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), existing_titles), [])
+
+    def test_the_real_posting_is_skipped_after_jobright_added_it(self):
+        listing = make("https://boards.greenhouse.io/x/jobs/1234567", source="speedyapply")
+        existing_titles = {sources_fp(listing): "jobright"}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), existing_titles), [])
+
+    def test_a_longer_company_name_still_matches(self):
+        # jobright writes "Electronic Arts (EA)" where the studio board says "Electronic Arts".
+        listing = make("https://jobright.ai/jobs/info/abc", source="jobright",
+                       company="Electronic Arts (EA)", role="Software Engineer Intern - SUMMER 2027")
+        existing_titles = {("electronicarts", "softwareengineerinternsummer2027"): "studios"}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), existing_titles), [])
+
+    def test_same_title_at_a_different_company_is_kept(self):
+        listing = make("https://jobright.ai/jobs/info/abc", source="jobright",
+                       company="Docusign", role="Software Engineer Intern")
+        existing_titles = {("autoowners", "softwareengineerintern"): "speedyapply"}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), existing_titles), [listing])
+
+    def test_same_title_from_two_real_sources_is_still_kept(self):
+        # Raytheon posts the same title per city; only jobright rows match on title.
+        listing = make("https://x.com/jobs/7654321", source="speedyapply")
+        existing_titles = {sources_fp(listing): "speedyapply"}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), existing_titles), [listing])
+
+
+def sources_fp(listing):
+    import sources
+    return sources.title_fingerprint(listing.company, listing.role)
