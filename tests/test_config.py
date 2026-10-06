@@ -46,7 +46,7 @@ class TestRoleFilterKeepsTechRoles(unittest.TestCase):
     def test_tech_titles_without_software_or_engineer_are_kept(self):
         for title in ["Tools Programmer Intern", "Engine Programmer Intern",
                       "DevOps Intern", "Site Reliability Internship - Spring 2027",
-                      "Firmware Intern"]:
+                      "Firmware Intern", "Computer Science Intern, Summer 2027"]:
             self.assertTrue(config.matches_role_filter(title), title)
 
     def test_finance_and_operations_titles_stay_out(self):

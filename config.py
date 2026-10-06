@@ -98,6 +98,7 @@ ROLE_KEYWORDS = [
     # none of the words above in the title.
     "programmer",
     "programming",
+    "computer science",
     "devops",
     "site reliability",
     "sre",
