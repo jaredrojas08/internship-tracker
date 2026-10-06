@@ -1,0 +1,8 @@
+name = "internship-tracker-scheduler"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+# Cron only. No public URL.
+workers_dev = false
+
+[triggers]
+crons = ["20 * * * *"]
