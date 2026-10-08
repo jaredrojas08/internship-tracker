@@ -8,7 +8,6 @@ Adding a source: write a parse function, add it to SOURCES. Everything
 downstream — filtering, dedup, sheet sync, link checking — is source-agnostic.
 """
 
-import json
 import logging
 import re
 from urllib.parse import urlparse
@@ -126,60 +125,31 @@ _JOBRIGHT_ROW = re.compile(
 )
 
 
-def _jobright_listing(company, role, location, url):
-    """A jobright-hosted posting through the same filters as every source, or None."""
-    if studios.NON_US.search(location):
-        return None
-    needs_review = False
-    if not config.matches_role_filter(role):
-        if not config.is_eligible(role):
-            return None
-        needs_review = True
-    return md.Listing(company=company, role=role, location=location, apply_url=url,
-                      source="jobright", needs_review=needs_review)
-
-
 def parse_jobright(markdown):
     """jobright-ai/2026-Software-Engineer-Internship, a rolling list of the last few days.
 
     Links go to jobright's own pages, not the employer's, so these rows match
     other sources on company and title only (see select_new).
     """
-    listings = []
+    listings, filtered = [], 0
     for line in markdown.splitlines():
         row = _JOBRIGHT_ROW.match(line.strip())
         if not row:
             continue
-        listing = _jobright_listing(row["company"].strip(), row["role"].strip(),
-                                    row["location"].strip(), row["url"].strip())
-        if listing:
-            listings.append(listing)
-    log.info("jobright: %d kept", len(listings))
-    return listings
-
-
-_NEXT_DATA = re.compile(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
-
-
-def parse_internlist(page):
-    """intern-list.com's software feed: the newest 50 US postings.
-
-    The site is run by jobright and its feed is jobright's, so listings carry
-    source "jobright" and share that source's company-and-title matching. The
-    feed is wider than the GitHub list (it carried Palantir's internships when
-    the list did not).
-    """
-    match = _NEXT_DATA.search(page)
-    if not match:
-        raise ValueError("intern-list: no __NEXT_DATA__ block, the page format changed")
-    jobs = json.loads(match.group(1))["props"]["pageProps"]["initialJobs"]
-    listings = []
-    for job in jobs:
-        listing = _jobright_listing(job["company"].strip(), job["title"].strip(),
-                                    (job.get("location") or "").strip(), job["applyUrl"])
-        if listing:
-            listings.append(listing)
-    log.info("intern-list: %d kept of %d", len(listings), len(jobs))
+        role, location = row["role"].strip(), row["location"].strip()
+        if studios.NON_US.search(location):
+            continue
+        needs_review = False
+        if not config.matches_role_filter(role):
+            if not config.is_eligible(role):
+                filtered += 1
+                continue
+            needs_review = True
+        listings.append(md.Listing(
+            company=row["company"].strip(), role=role, location=location,
+            apply_url=row["url"].strip(), source="jobright", needs_review=needs_review,
+        ))
+    log.info("jobright: %d kept, %d filtered out", len(listings), filtered)
     return listings
 
 
@@ -208,12 +178,6 @@ SOURCES = [
         "name": "jobright",
         "url": "https://raw.githubusercontent.com/jobright-ai/2026-Software-Engineer-Internship/master/README.md",
         "parse": parse_jobright,
-    },
-    {
-        # Only the software feed: its "engineering" feed is civil and mechanical.
-        "name": "intern-list",
-        "url": "https://jobright.ai/minisites-jobs/intern/us/swe?embed=true",
-        "parse": parse_internlist,
     },
 ]
 

@@ -368,29 +368,3 @@ class TestJobright(unittest.TestCase):
 def sources_fp(listing):
     import sources
     return sources.title_fingerprint(listing.company, listing.role)
-
-
-INTERNLIST_PAGE = """<html><script id="__NEXT_DATA__" type="application/json">
-{"props": {"pageProps": {"initialJobs": [
- {"title": "Software Engineer, Internship - Infrastructure", "company": "Palantir Technologies",
-  "location": "New York, NY", "applyUrl": "https://jobright.ai/jobs/info/6ac7aaa?utm_source=1099"},
- {"title": "Cybersecurity Analyst Intern", "company": "Acme", "location": "Austin, TX",
-  "applyUrl": "https://jobright.ai/jobs/info/6ac7bbb"},
- {"title": "Software Engineer Intern", "company": "Shopify", "location": "Toronto, ON, Canada",
-  "applyUrl": "https://jobright.ai/jobs/info/6ac7ccc"}
-]}}}
-</script></html>"""
-
-
-class TestInternList(unittest.TestCase):
-    def test_reads_the_feed_through_the_same_filters(self):
-        import sources
-        listings = sources.parse_internlist(INTERNLIST_PAGE)
-        self.assertEqual([(l.company, l.role) for l in listings],
-                         [("Palantir Technologies", "Software Engineer, Internship - Infrastructure")])
-        self.assertEqual(listings[0].source, "jobright")
-
-    def test_a_changed_page_fails_loudly(self):
-        import sources
-        with self.assertRaises(ValueError):
-            sources.parse_internlist("<html>no data here</html>")
