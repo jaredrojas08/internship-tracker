@@ -104,9 +104,19 @@ class Notion:
         })
 
     def _call(self, method: str, path: str, **kw) -> dict:
-        """One request with retry on Notion's 429 and transient 5xx."""
+        """One request with retry on Notion's 429, transient 5xx, and timeouts."""
+        # Creating a page or database is not safe to repeat: Notion may have
+        # made it before the response was lost, and a retry would duplicate it.
+        repeatable = not (method == "POST" and path in ("/pages", "/databases"))
         for attempt in range(5):
-            resp = self.s.request(method, f"{API}{path}", timeout=30, **kw)
+            try:
+                resp = self.s.request(method, f"{API}{path}", timeout=30, **kw)
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                if not repeatable or attempt == 4:
+                    raise
+                log.warning("notion %s -> %s, retrying in %ds", path, type(exc).__name__, 2 ** attempt)
+                time.sleep(2 ** attempt)
+                continue
             if resp.status_code == 429 or resp.status_code >= 500:
                 wait = float(resp.headers.get("Retry-After", 2 ** attempt))
                 log.warning("notion %s -> %s, retrying in %.0fs", path, resp.status_code, wait)

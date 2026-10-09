@@ -1,5 +1,7 @@
 import unittest
 
+import requests
+
 import notion_sink
 import parser as md
 
@@ -529,3 +531,29 @@ class TestExistingTitleFingerprints(unittest.TestCase):
         }}], "has_more": False}]
         self.assertEqual(api.existing_title_fingerprints("db1"),
                          {("ramp", "softwareengineeringinternbackend"): "jobright"})
+
+
+class TestTimeoutRetry(unittest.TestCase):
+    """Run #210 died on one 30-second read timeout from Notion."""
+
+    def _api(self, outcomes):
+        from unittest import mock
+        api = notion_sink.Notion("ntn_fake")
+        ok = mock.Mock(status_code=200, ok=True)
+        ok.json.return_value = {"results": []}
+        side = [requests.exceptions.ReadTimeout("slow") if o == "timeout" else ok for o in outcomes]
+        api.s.request = mock.Mock(side_effect=side)
+        return api
+
+    def test_a_query_retries_after_a_timeout(self):
+        from unittest import mock
+        api = self._api(["timeout", "ok"])
+        with mock.patch("notion_sink.time.sleep"):
+            self.assertEqual(api._call("POST", "/databases/db1/query", json={}), {"results": []})
+
+    def test_creating_a_page_does_not_retry_a_timeout(self):
+        # Notion may have created the page before the response was lost.
+        from unittest import mock
+        api = self._api(["timeout", "ok"])
+        with mock.patch("notion_sink.time.sleep"), self.assertRaises(requests.exceptions.ReadTimeout):
+            api._call("POST", "/pages", json={})
