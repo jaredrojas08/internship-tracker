@@ -66,10 +66,9 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # Commits are authored as Jared: this is his automation acting on his
-          # own repo, and the message makes the automation explicit.
-          git config user.name "jaredrojas08"
-          git config user.email "jaredrojas08@gmail.com"
+          # Authored as the Actions bot so hourly state commits stay off Jared's contribution graph.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
 
           # digest_state.json only exists once a run has found something; guard the add.
           for f in removed.json digest_state.json; do
