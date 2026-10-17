@@ -25,12 +25,20 @@ KEYWORDS_BY_CATEGORY = {
                          "State Machines", "Physics", "Animation", "Tools"],
     "Software Engineering": ["Python", "Java", "C++", "Data Structures",
                              "Algorithms", "APIs", "Git", "Testing"],
+    "VR / XR": ["Unity", "C#", "Unreal", "C++", "OpenXR", "3D Math",
+                "Performance"],
 }
+
+
+def _category_for_role(role_title, is_game):
+    if config.is_xr_role(role_title):
+        return "VR / XR"
+    return "Game Programming" if is_game else "Software Engineering"
 
 
 def keywords_for_role(role_title):
     """Keywords for a role, derived from its title alone. No fetch needed."""
-    category = "Game Programming" if config.is_game_role(role_title) else "Software Engineering"
+    category = _category_for_role(role_title, config.is_game_role(role_title))
     return list(KEYWORDS_BY_CATEGORY.get(category, []))
 
 
@@ -38,7 +46,7 @@ def category_for(listing):
     """Which Notion Category select this listing belongs in."""
     if listing.needs_review:
         return "Check: filtered out"
-    return "Game Programming" if listing.is_game else "Software Engineering"
+    return _category_for_role(listing.role, listing.is_game)
 
 
 def _enrich_one(listing, session):

@@ -39,6 +39,19 @@ NOTIFY_ON_QUIET_DAYS = os.environ.get("NOTIFY_ON_QUIET_DAYS", "true").strip().lo
 
 # --- Role filter -----------------------------------------------------------
 
+# VR/XR roles Jared wants, stated 2026-10-17. Bare "ar" is left out: it
+# matches accounts-receivable titles, and "AR/VR" already hits on "vr".
+XR_KEYWORDS = [
+    "vr",
+    "xr",
+    "virtual reality",
+    "augmented reality",
+    "mixed reality",
+    "extended reality",
+    "spatial computing",
+    "immersive",
+]
+
 # Matched case-insensitively against the role title. Everything here is applied
 # with word boundaries so short tokens can't match inside unrelated words.
 ROLE_KEYWORDS = [
@@ -105,16 +118,7 @@ ROLE_KEYWORDS = [
     "cybersecurity",
     "firmware",
     "sdet",
-    # VR/XR roles Jared wants, stated 2026-10-17. Bare "ar" is left out: it
-    # matches accounts-receivable titles, and "AR/VR" already hits on "vr".
-    "vr",
-    "xr",
-    "virtual reality",
-    "augmented reality",
-    "mixed reality",
-    "extended reality",
-    "spatial computing",
-    "immersive",
+    *XR_KEYWORDS,
 ]
 
 # --- Game development priority ---------------------------------------------
@@ -140,15 +144,9 @@ GAME_KEYWORDS = [
     "shader",
     "animation",
     "technical artist",
-    "virtual reality",
-    "augmented reality",
-    "mixed reality",
-    "extended reality",
-    "spatial computing",
-    "immersive",
-    "vr",
-    "xr",
     "3d",
+    # XR sorts with game work: same engines, same skills.
+    *XR_KEYWORDS,
 ]
 
 _GAME_PATTERN = re.compile(
@@ -160,6 +158,17 @@ _GAME_PATTERN = re.compile(
 def is_game_role(role_title):
     """True if the role looks like game development work."""
     return bool(_GAME_PATTERN.search(role_title))
+
+
+_XR_PATTERN = re.compile(
+    "|".join(rf"\b{re.escape(kw)}\b" for kw in XR_KEYWORDS),
+    re.IGNORECASE,
+)
+
+
+def is_xr_role(role_title):
+    """True if the role is VR, AR, XR or spatial computing work."""
+    return bool(_XR_PATTERN.search(role_title))
 
 
 # Uppercase acronyms matched case-sensitively. "IT" cannot go in the list above:

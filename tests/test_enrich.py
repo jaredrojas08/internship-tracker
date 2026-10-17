@@ -53,6 +53,13 @@ class TestEnrich(unittest.TestCase):
             enrich.enrich_all([listing])
         self.assertEqual(listing.category, "Software Engineering")
 
+    def test_xr_role_gets_its_own_category_even_at_a_game_studio(self):
+        listing = make(role="XR Prototyping Intern")
+        with mock.patch.object(ats, "fetch_page", return_value=ats.PageData(ok=False)):
+            enrich.enrich_all([listing])
+        self.assertEqual(listing.category, "VR / XR")
+        self.assertEqual(enrich.keywords_for_role("AR/VR Intern"), listing.resume_keywords)
+
     def test_enrich_all_survives_a_listing_that_raises_and_still_enriches_the_rest(self):
         bad = make(apply_url="https://example.com/jobs/bad")
         good = make(apply_url="https://example.com/jobs/good")
