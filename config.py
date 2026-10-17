@@ -105,6 +105,16 @@ ROLE_KEYWORDS = [
     "cybersecurity",
     "firmware",
     "sdet",
+    # VR/XR roles Jared wants, stated 2026-10-17. Bare "ar" is left out: it
+    # matches accounts-receivable titles, and "AR/VR" already hits on "vr".
+    "vr",
+    "xr",
+    "virtual reality",
+    "augmented reality",
+    "mixed reality",
+    "extended reality",
+    "spatial computing",
+    "immersive",
 ]
 
 # --- Game development priority ---------------------------------------------
@@ -133,6 +143,9 @@ GAME_KEYWORDS = [
     "virtual reality",
     "augmented reality",
     "mixed reality",
+    "extended reality",
+    "spatial computing",
+    "immersive",
     "vr",
     "xr",
     "3d",

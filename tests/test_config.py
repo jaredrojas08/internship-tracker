@@ -49,6 +49,14 @@ class TestRoleFilterKeepsTechRoles(unittest.TestCase):
                       "Firmware Intern", "Computer Science Intern, Summer 2027"]:
             self.assertTrue(config.matches_role_filter(title), title)
 
+    def test_vr_and_xr_titles_are_kept_and_ranked_as_game_work(self):
+        for title in ["XR Intern", "AR/VR Intern", "Mixed Reality Intern",
+                      "Research Intern, AR/VR", "XR Prototyping Intern - Reality Labs",
+                      "Spatial Computing Intern", "Immersive Technology Intern",
+                      "Extended Reality Intern"]:
+            self.assertTrue(config.matches_role_filter(title), title)
+            self.assertTrue(config.is_game_role(title), title)
+
     def test_finance_and_operations_titles_stay_out(self):
         for title in ["Macro Analyst Intern (Summer 2027, June start)",
                       "Operations Management Intern", "Equity Research Analyst Intern"]:
