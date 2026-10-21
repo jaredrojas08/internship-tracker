@@ -40,6 +40,8 @@ STUDIO_BOARDS = [
     ("Epic Games", "epicgames", "greenhouse"),
     ("Roblox", "roblox", "greenhouse"),
     ("Sony Interactive Entertainment", "sonyinteractiveentertainmentglobal", "greenhouse"),
+    # SIE posts its US internships on a separate board; the global one carries none.
+    ("Sony Interactive Entertainment", "usinternshipspubliccareerssite", "greenhouse"),
     ("Scopely", "scopely", "greenhouse"),
     ("Rockstar Games", "rockstargames", "greenhouse"),
     ("Discord", "discord", "greenhouse"),

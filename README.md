@@ -161,7 +161,7 @@ Verified live boards:
 
 | ATS | Boards |
 |---|---|
-| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` `2k` `taketwo` `nintendo` `insomniac` `gearbox` `crystaldynamics` `azragames` `zyngacareers` |
+| Greenhouse | `riotgames` `epicgames` `roblox` `sonyinteractiveentertainmentglobal` `usinternshipspubliccareerssite` `scopely` `rockstargames` `discord` `naughtydog` `digitalextremes` `bungie` `2k` `taketwo` `nintendo` `insomniac` `gearbox` `crystaldynamics` `azragames` `zyngacareers` |
 | Ashby | `supercell` `thatgamecompany` `hoyoverse` `arenanet` `seconddinner` `believer` |
 | Lever | `skydance` `jamcity` `theorycraftgames` |
 | Workday | `xboxgaming.wd1/Blizzard_External_Careers` `xboxgaming.wd1/External` (Activision, Raven, Sledgehammer, Demonware) `unitytech.wd1/Unity` |
