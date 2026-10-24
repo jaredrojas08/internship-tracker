@@ -57,7 +57,8 @@ jobs:
           if [ "${{ inputs.test_notify }}" = "true" ]; then
             python internship_tracker.py --test-notify
           else
-            python internship_tracker.py --notion
+            # New listings reach Telegram through the daytime check-ins; Discord keeps only sync-failure alerts.
+            python internship_tracker.py --notion --no-notify
           fi
 
       # Runs even on a failed sync: the digest backlog is held in
