@@ -8,7 +8,7 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 |---|---|---|
 | [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also publishes the Programs & Fellowships table (see Notion database below) |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
-| Game studio ATS boards (`studios.py`) | ~20 in season | 34 boards over Greenhouse / Ashby / Lever / Workday / Avature |
+| Game studio ATS boards (`studios.py`) | ~20 in season | 106 boards over Greenhouse / Ashby / Lever / Workday / SmartRecruiters / Workable / BambooHR / Teamtailor / Avature |
 
 Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.
 
@@ -153,11 +153,15 @@ https://boards-api.greenhouse.io/v1/boards/{board}/jobs
 https://api.ashbyhq.com/posting-api/job-board/{board}
 https://api.lever.co/v0/postings/{board}?mode=json
 POST https://{tenant}.wdN.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs   (20 a page; total only on page 1)
+https://api.smartrecruiters.com/v1/companies/{company}/postings   (100 a page)
+https://apply.workable.com/api/v1/widget/accounts/{account}
+https://{company}.bamboohr.com/careers/list
+https://{careers host}/jobs.rss   (Teamtailor; no keyless JSON)
 ```
 
 EA is the exception: `jobs.ea.com` is an Avature portal with no JSON API, so its server-rendered search page is parsed for `<article>` blocks. A template change there breaks EA and nothing else.
 
-Verified live boards:
+Verified live boards (the full list, including the 72 added on 2026-10-26, is `STUDIO_BOARDS` in `studios.py`):
 
 | ATS | Boards |
 |---|---|
@@ -166,6 +170,8 @@ Verified live boards:
 | Lever | `skydance` `jamcity` `theorycraftgames` |
 | Workday | `xboxgaming.wd1/Blizzard_External_Careers` `xboxgaming.wd1/External` (Activision, Raven, Sledgehammer, Demonware) `unitytech.wd1/Unity` `lnw.wd5/LightWonderExternalCareers` (Light & Wonder) `aristocrat.wd3/AristocratExternalCareersSite` |
 | Avature | `jobs.ea.com` (EA, Respawn, Maxis, DICE, Motive) |
+
+Oct 2026: probed ~2,400 game companies from Wikipedia's developer/publisher lists and sorcery.gg's studio directory across every public job feed; US studios with no openings yet were kept so their internships appear once posted. Hasbro was added then (the role filter now keeps its non-game roles out); Warner Bros. Discovery and Evolution (live-casino dealers) were checked again and skipped. Workable rate-limits bursts with HTTP 429.
 
 Probed ~300 slugs in Sept 2026. Not found anywhere obvious: Valve, Sucker Punch, Santa Monica Studio, Obsidian, CD Projekt Red, Niantic; Xbox first-party studios sit on Microsoft's custom careers site, not the xboxgaming Workday tenant. Live boards skipped on purpose: Larian, Kabam, NetEase, Avalanche, Crytek, Housemarque, Haven, King (no US roles); Twitch, VRChat (not studios); Hasbro, Warner Bros Discovery (mostly non-game roles, and the source tags everything as game work); Ubisoft on SmartRecruiters (109 postings, US ones are rare and non-engineering). Beware name collisions: `remedy`, `bethesda`, `raven`, `moonshot`, `take2`, `lightspeed`, `paradox`, `kepler`, `lockwood` resolve to unrelated companies.
 

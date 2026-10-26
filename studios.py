@@ -21,6 +21,7 @@ import logging
 import re
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 
 import ats
 import config
@@ -77,6 +78,81 @@ STUDIO_BOARDS = [
     ("Light & Wonder", "lnw.wd5/LightWonderExternalCareers", "workday"),
     ("Aristocrat", "aristocrat.wd3/AristocratExternalCareersSite", "workday"),
     ("Electronic Arts", "jobs.ea.com", "avature"),
+    # Added 2026-10-26 from a probe of ~2,400 game companies (Wikipedia lists plus
+    # sorcery.gg's studio directory). Boards with no US jobs today stay in when the
+    # studio is US-based, so its internships show up once posted.
+    ("Hasbro", "hasbro", "greenhouse"),
+    ("AppLovin", "applovin", "greenhouse"),
+    ("Absurd Ventures", "absurdventures", "greenhouse"),
+    ("teamLFG", "teamlfg", "greenhouse"),
+    ("31st Union", "31stunion", "greenhouse"),
+    ("Atari", "atariinc", "greenhouse"),
+    ("Mob Entertainment", "mobentertainment", "greenhouse"),
+    ("NC America", "ncamerica", "greenhouse"),
+    ("MobilityWare", "mobilityware", "greenhouse"),
+    ("Skillz", "skillzinc", "greenhouse"),
+    ("Rushdown Studios", "rushdownstudios", "greenhouse"),
+    ("Visual Concepts", "visualconcepts", "greenhouse"),
+    ("Ghost Story Games", "gsgcareers", "greenhouse"),
+    ("Linden Lab", "lindenlab", "greenhouse"),
+    ("NetEase Games", "neteasegames", "greenhouse"),
+    ("Panic Button", "panicbutton", "greenhouse"),
+    ("Daybreak Games", "daybreakgames", "greenhouse"),
+    ("KRAFTON Americas", "kraftonamericas", "greenhouse"),
+    ("That's No Moon", "thatsnomoonentertainment", "greenhouse"),
+    ("Tripledot Studios", "tripledotstudios", "greenhouse"),
+    ("Bonfire Studios", "bonfirestudiosinc", "greenhouse"),
+    ("Firaxis Games", "firaxis", "greenhouse"),
+    ("Tripwire Interactive", "tripwireinteractive", "greenhouse"),
+    ("Wargaming", "wargamingen", "greenhouse"),
+    ("2K", "2kearlycareers", "greenhouse"),
+    ("Hangar 13", "hangar13", "greenhouse"),
+    ("Turtle Rock Studios", "turtlerockstudios", "greenhouse"),
+    ("Psyonix", "psyonix", "greenhouse"),
+    ("Pocket Gems", "pocketgems", "greenhouse"),
+    ("Fortis Games", "fortisgames", "greenhouse"),
+    ("Bit Reactor", "bitreactor", "greenhouse"),
+    ("Digital Eclipse", "digitaleclipse", "greenhouse"),
+    ("Unknown Worlds", "unknownworlds", "greenhouse"),
+    ("Chartboost", "chartboost", "greenhouse"),
+    ("Eleventh Hour Games", "eleventhhourgames", "greenhouse"),
+    ("Niantic Spatial", "niantic-spatial", "ashby"),
+    ("Spellbrush", "spellbrush", "ashby"),
+    ("Voodoo", "voodoo", "ashby"),
+    ("Bullet Farm", "bulletfarm", "ashby"),
+    ("Balor Games", "balorgames", "ashby"),
+    ("Joyteractive", "joyteractive", "ashby"),
+    ("TapBlaze", "tapblaze", "ashby"),
+    ("Gardens", "gardens", "ashby"),
+    ("Sky Mavis", "skymavis", "ashby"),
+    ("Demiurge Studios", "demiurgestudios", "lever"),
+    ("Immutable", "immutable", "lever"),
+    ("Kabam", "kabam", "lever"),
+    ("Scientific Games", "sglottery.wd5/ScientificGamesExternalCareers", "workday"),
+    ("Tencent", "tencent.wd1/Tencent_Careers", "workday"),
+    ("TiMi Studio Group", "tencent.wd1/timi_careers", "workday"),
+    ("Sledgehammer Games", "xboxgaming.wd1/CentralTech", "workday"),
+    ("CD Projekt Red", "cdprojektred", "smartrecruiters"),
+    ("Intrepid Studios", "intrepidstudios", "smartrecruiters"),
+    ("Gameloft", "gameloft", "smartrecruiters"),
+    ("Crazy Maple Studio", "crazymaplestudio", "workable"),
+    ("Velan Studios", "velanstudios", "workable"),
+    ("Team17", "team-17-digital", "workable"),
+    ("Jackbox Games", "jackbox-games", "workable"),
+    ("Arkadium", "arkadium-1", "workable"),
+    ("Stardock", "stardock", "bamboohr"),
+    ("Dreamhaven", "dreamhaven", "bamboohr"),
+    ("Ember Lab", "emberlab", "bamboohr"),
+    ("inXile Entertainment", "inxile", "bamboohr"),
+    ("Schell Games", "sg", "bamboohr"),
+    ("High Voltage Software", "highvoltagesoftware", "bamboohr"),
+    ("High 5 Games", "high5games", "bamboohr"),
+    ("Studio Wildcard", "studiowildcard", "bamboohr"),
+    ("Filament Games", "filamentgames", "bamboohr"),
+    ("Motorsport Games", "motorsportgames", "bamboohr"),
+    ("Ruckus Games", "careers.ruckus-games.com", "teamtailor"),
+    ("OtherSide Entertainment", "careers.otherside-e.com", "teamtailor"),
+    ("AdHoc Studio", "careers.adhocla.com", "teamtailor"),
 ]
 
 ENDPOINTS = {
@@ -85,6 +161,7 @@ ENDPOINTS = {
     "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{}/jobs?content=true",
     "ashby": "https://api.ashbyhq.com/posting-api/job-board/{}",
     "lever": "https://api.lever.co/v0/postings/{}?mode=json",
+    "workable": "https://apply.workable.com/api/v1/widget/accounts/{}",
 }
 
 # Word-boundary anchored so "International" can't match "intern".
@@ -104,7 +181,7 @@ EARLY_CAREER_HINT = re.compile(
 
 # Recruiting-team roles that mention early-career talent without being one.
 NOT_A_ROLE = re.compile(
-    r"talent acquisition|recruit(er|ing)|talent business partner|program manager,",
+    r"talent acquisition|talent sourcing|recruit(er|ing)|talent business partner|program manager,",
     re.IGNORECASE,
 )
 
@@ -112,7 +189,7 @@ NOT_A_ROLE = re.compile(
 # roles get through, which also lets these in. A tech keyword in the title still wins.
 NON_TECH = re.compile(
     r"\b(communications?|legal|customer experience|marketing|public relations"
-    r"|finance|accounting|human resources|sales|brand|social media)\b",
+    r"|finance|accounting|human resources|sales|brand|social media|pr|consumer insights)\b",
     re.IGNORECASE,
 )
 
@@ -177,10 +254,32 @@ def _normalize_lever(payload):
         )
 
 
+def _normalize_workable(payload):
+    for job in payload.get("jobs", []):
+        location = ", ".join(
+            part for part in (job.get("city"), job.get("state"), job.get("country")) if part
+        )
+        yield (job.get("title", ""), location, job.get("url") or job.get("application_url") or "")
+
+
+def _normalize_bamboohr(payload, slug):
+    for job in payload.get("result", []):
+        place = job.get("location") or {}
+        location = ", ".join(part for part in (place.get("city"), place.get("state")) if part)
+        if job.get("isRemote"):
+            location = f"{location} (Remote)".strip()
+        yield (
+            job.get("jobOpeningName", ""),
+            location,
+            f"https://{slug}.bamboohr.com/careers/{job.get('id')}",
+        )
+
+
 NORMALIZERS = {
     "greenhouse": _normalize_greenhouse,
     "ashby": _normalize_ashby,
     "lever": _normalize_lever,
+    "workable": _normalize_workable,
 }
 
 WORKDAY_PAGE = 20  # the API's maximum
@@ -250,9 +349,65 @@ def _fetch_avature(host):
         offset += 20
 
 
+SMARTRECRUITERS_PAGE = 100  # the API's maximum
+
+
+def _fetch_smartrecruiters(slug):
+    jobs, offset = [], 0
+    while True:
+        payload = _get(
+            f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
+            f"?limit={SMARTRECRUITERS_PAGE}&offset={offset}"
+        )
+        page = payload.get("content", [])
+        for job in page:
+            jobs.append(
+                (
+                    job.get("name", ""),
+                    (job.get("location") or {}).get("fullLocation", "") or "",
+                    f"https://jobs.smartrecruiters.com/{slug}/{job.get('id')}",
+                )
+            )
+        offset += SMARTRECRUITERS_PAGE
+        if not page or offset >= payload.get("totalFound", 0):
+            return jobs
+
+
+def _fetch_bamboohr(slug):
+    return list(_normalize_bamboohr(_get(f"https://{slug}.bamboohr.com/careers/list"), slug))
+
+
+TEAMTAILOR_NS = "{https://teamtailor.com/locations}"
+
+
+def _fetch_teamtailor(host):
+    """Teamtailor has no public JSON without an API key, but every careers site serves RSS."""
+    root = ET.fromstring(_request(f"https://{host}/jobs.rss"))
+    jobs = []
+    for item in root.iter("item"):
+        locations = [
+            name.text.strip()
+            for name in item.iter(f"{TEAMTAILOR_NS}name")
+            if name.text and name.text.strip()
+        ]
+        if (item.findtext("remoteStatus") or "").strip() == "fully":
+            locations.append("Remote")
+        jobs.append(
+            (
+                (item.findtext("title") or "").strip(),
+                "; ".join(locations),
+                (item.findtext("link") or "").strip(),
+            )
+        )
+    return jobs
+
+
 FETCHERS = {
     "workday": _fetch_workday,
     "avature": _fetch_avature,
+    "smartrecruiters": _fetch_smartrecruiters,
+    "bamboohr": _fetch_bamboohr,
+    "teamtailor": _fetch_teamtailor,
 }
 
 
@@ -264,7 +419,7 @@ def _fetch_board(entry):
             jobs = list(NORMALIZERS[ats](_get(ENDPOINTS[ats].format(slug))))
         else:
             jobs = FETCHERS[ats](slug)
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except (urllib.error.URLError, OSError, ValueError, ET.ParseError) as exc:
         return display, [], f"{type(exc).__name__}"
     except (AttributeError, TypeError, KeyError) as exc:
         return display, [], f"unexpected payload shape: {exc}"
