@@ -73,6 +73,9 @@ STUDIO_BOARDS = [
     ("Blizzard Entertainment", "xboxgaming.wd1/Blizzard_External_Careers", "workday"),
     ("Activision", "xboxgaming.wd1/External", "workday"),
     ("Unity", "unitytech.wd1/Unity", "workday"),
+    # Slot machine and social casino studios, both with Las Vegas offices.
+    ("Light & Wonder", "lnw.wd5/LightWonderExternalCareers", "workday"),
+    ("Aristocrat", "aristocrat.wd3/AristocratExternalCareersSite", "workday"),
     ("Electronic Arts", "jobs.ea.com", "avature"),
 ]
 
