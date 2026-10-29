@@ -209,6 +209,11 @@ def url_fingerprint(url):
     ids = _JOB_ID.findall(parsed.path)
     if ids:
         return (host, ids[-1])
+    # Custom Greenhouse domains (Nintendo) put the only id in ?gh_jid=, and
+    # without it every posting on the board shares one fingerprint.
+    gh_jid = re.search(r"[?&]gh_jid=(\d+)", url)
+    if gh_jid:
+        return (host, gh_jid.group(1))
     return (host, parsed.path.lower())
 
 

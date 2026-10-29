@@ -23,6 +23,13 @@ class TestJobId(unittest.TestCase):
         b = make(apply_url="https://boards.greenhouse.io/riotgames/jobs/7654321")
         self.assertNotEqual(a.job_id, b.job_id)
 
+    def test_job_id_reads_gh_jid_when_the_path_has_no_id(self):
+        # Nintendo links every posting as careers.nintendo.com/?gh_jid=<id>.
+        a = make(apply_url="https://careers.nintendo.com/?gh_jid=4421632009")
+        b = make(apply_url="https://careers.nintendo.com/?gh_jid=4471972009")
+        self.assertNotEqual(a.job_id, b.job_id)
+        self.assertEqual(a.job_id, "careers.nintendo.com:4421632009")
+
     def test_job_id_is_a_plain_string(self):
         self.assertIsInstance(make().job_id, str)
         self.assertTrue(make().job_id)
