@@ -185,6 +185,8 @@ SOURCES = [
 # --- Deduplication ---------------------------------------------------------
 
 _JOB_ID = re.compile(r"\d{6,}")
+# Ashby and Lever ids are UUIDs, whose digit runs would otherwise pass for _JOB_ID.
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 _COMPANY_SUFFIX = re.compile(
     r"\b(inc|llc|ltd|corp|corporation|company|group|holdings|technologies|labs"
     r"|management|capital|partners)\b",
@@ -206,6 +208,9 @@ def url_fingerprint(url):
     host = parsed.netloc.lower().replace("www.", "")
     # Greenhouse serves the same board on both hostnames.
     host = re.sub(r"^(job-)?boards\.greenhouse\.io$", "greenhouse.io", host)
+    uuids = _UUID.findall(parsed.path)
+    if uuids:
+        return (host, uuids[-1].lower())
     ids = _JOB_ID.findall(parsed.path)
     if ids:
         return (host, ids[-1])
@@ -246,27 +251,42 @@ def title_fingerprint(company, role):
     return (company_key, role_key)
 
 
+def _title_copy(url_key, kept_url_keys):
+    """True when a title match is the same posting seen through another site.
+
+    Two different ids on the same board are separate postings: Sony lists one
+    "Software Engineering Intern" per team and city.
+    """
+    if kept_url_keys is None:
+        return False
+    if url_key is None:
+        return True
+    return any(kept is None or kept[0] != url_key[0] for kept in kept_url_keys)
+
+
 def deduplicate(listings):
     """Collapse the same job appearing in more than one source.
 
     Earlier sources win, so SOURCES order is a priority order. Returns
     (unique_listings, duplicate_count).
     """
-    seen_urls, seen_titles = set(), set()
+    seen_urls = set()
+    # title fingerprint -> url fingerprints (or None) already kept under it
+    seen_titles = {}
     unique, duplicates = [], 0
 
     for listing in listings:
         url_key = url_fingerprint(listing.apply_url)
         title_key = title_fingerprint(listing.company, listing.role)
 
-        if (url_key and url_key in seen_urls) or (title_key and title_key in seen_titles):
+        if (url_key and url_key in seen_urls) or _title_copy(url_key, seen_titles.get(title_key)):
             duplicates += 1
             continue
 
         if url_key:
             seen_urls.add(url_key)
         if title_key:
-            seen_titles.add(title_key)
+            seen_titles.setdefault(title_key, []).append(url_key)
         unique.append(listing)
 
     return unique, duplicates
