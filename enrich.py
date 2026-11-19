@@ -10,6 +10,7 @@ from __future__ import annotations
 import concurrent.futures
 import datetime as dt
 import logging
+import re
 
 import requests
 
@@ -111,5 +112,13 @@ def stamp_first_seen(listings, now=None):
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     for listing in listings:
-        if not listing.posted_at:
+        if listing.posted_at:
+            continue
+        # A list's own "12d ago" beats the run time: a new source's backlog
+        # would otherwise all read as posted in the last hour.
+        age = re.fullmatch(r"(\d+)(d|mo) ago", listing.source_added)
+        if age:
+            days = int(age[1]) * (30 if age[2] == "mo" else 1)
+            listing.posted_at, listing.posted_precision = now - dt.timedelta(days=days), "day"
+        else:
             listing.posted_at, listing.posted_precision = now, "first_seen"

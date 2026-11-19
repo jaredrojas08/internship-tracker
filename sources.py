@@ -113,9 +113,9 @@ def _parse_speedy_table(headers, rows):
 
 
 def _age_to_note(cell):
-    """'5d' -> '5d ago'. The source gives relative age, not a date."""
+    """'5d' -> '5d ago', '2mo' -> '2mo ago'. The source gives relative age, not a date."""
     value = md.strip_links(cell)
-    return f"{value} ago" if re.fullmatch(r"\d+d", value) else ""
+    return f"{value} ago" if re.fullmatch(r"\d+(d|mo)", value) else ""
 
 
 

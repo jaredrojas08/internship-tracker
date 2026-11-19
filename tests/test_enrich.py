@@ -148,3 +148,13 @@ class TestStampFirstSeen(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStampFromSourceAge(unittest.TestCase):
+    def test_a_list_age_dates_the_listing_before_the_run_time_does(self):
+        now = enrich.dt.datetime(2026, 11, 19, tzinfo=enrich.dt.timezone.utc)
+        aged, unaged = make(), make()
+        aged.source_added = "12d ago"
+        enrich.stamp_first_seen([aged, unaged], now=now)
+        self.assertEqual((aged.posted_at.day, aged.posted_precision), (7, "day"))
+        self.assertEqual((unaged.posted_at, unaged.posted_precision), (now, "first_seen"))
