@@ -65,7 +65,20 @@ def _jobright_copy(listing, existing_titles):
     return False
 
 
-def select_new(listings, existing, tombstoned, existing_titles=None):
+def _simplify_copy(listing, loose_titles):
+    """True when a Simplify row's company and title words match a row Notion holds."""
+    if listing.source != "simplify":
+        return False
+    key = sources.loose_title_key(listing.company, listing.role)
+    if not key:
+        return False
+    company, words = key
+    # Prefix match, since lists write "Sigma" and "Sigma Computing" for one company.
+    return any(words == other_words and (company.startswith(other) or other.startswith(company))
+               for other, other_words in loose_titles)
+
+
+def select_new(listings, existing, tombstoned, existing_titles=None, loose_titles=None):
     """Listings Notion does not already hold and the user has not tombstoned.
 
     Runs before enrichment, not after. Enriching first meant fetching all 735
@@ -74,6 +87,7 @@ def select_new(listings, existing, tombstoned, existing_titles=None):
     """
     new = [l for l in listings if l.job_id not in existing]
     new = [l for l in new if not _jobright_copy(l, existing_titles or {})]
+    new = [l for l in new if not _simplify_copy(l, loose_titles or set())]
     fresh = [l for l in new if l.job_id not in tombstoned]
     log.info("%d listing(s) already in Notion, %d tombstoned, %d new",
              len(listings) - len(new), len(new) - len(fresh), len(fresh))
@@ -206,12 +220,16 @@ def main(argv=None):
         database_id = config.require_env("NOTION_DATABASE_ID")
         api.ensure_schema(database_id)
         existing = api.existing_job_ids(database_id)
-        existing_titles = api.existing_title_fingerprints(database_id)
+        rows = api.existing_titles(database_id)
+        existing_titles = {fp: source for company, title, source in rows
+                           if (fp := sources.title_fingerprint(company, title))}
+        loose_titles = {key for company, title, _ in rows
+                        if (key := sources.loose_title_key(company, title))}
         tombstoned = tombstones.load()
 
         # Only new postings are fetched, so each one is fetched exactly once
         # over its lifetime rather than once an hour for as long as it is up.
-        fresh = select_new(listings, existing, tombstoned, existing_titles)
+        fresh = select_new(listings, existing, tombstoned, existing_titles, loose_titles)
         enrich.enrich_all(fresh)
 
         # Programs skip enrichment: it re-derives category from is_game and

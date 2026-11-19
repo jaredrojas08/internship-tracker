@@ -189,10 +189,9 @@ class Notion:
         log.info("database already holds %d job ids", len(ids))
         return ids
 
-    def existing_title_fingerprints(self, database_id: str) -> Dict[tuple, str]:
-        """Company-and-title fingerprint of every row, mapped to its Source."""
-        import sources
-        out: Dict[tuple, str] = {}
+    def existing_titles(self, database_id: str) -> List[tuple]:
+        """(company, title, source) for every row, read in one pass for both title matches."""
+        out: List[tuple] = []
         cursor: Optional[str] = None
         while True:
             body = {"page_size": 100}
@@ -201,11 +200,10 @@ class Notion:
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
             for row in page.get("results", []):
                 props = row.get("properties", {})
-                fp = sources.title_fingerprint(
+                out.append((
                     _plain_text(props.get(P_COMPANY, {}).get("rich_text", [])),
-                    _plain_text(props.get(P_TITLE, {}).get("title", [])))
-                if fp:
-                    out[fp] = (props.get(P_SOURCE, {}).get("select") or {}).get("name", "")
+                    _plain_text(props.get(P_TITLE, {}).get("title", [])),
+                    (props.get(P_SOURCE, {}).get("select") or {}).get("name", "")))
             if not page.get("has_more"):
                 return out
             cursor = page.get("next_cursor")

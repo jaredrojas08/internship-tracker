@@ -53,7 +53,7 @@ class TestMainRun(unittest.TestCase):
     def run_main(self, listings, existing, argv=("--notion", "--no-notify")):
         api = mock.Mock()
         api.existing_job_ids.return_value = existing
-        api.existing_title_fingerprints.return_value = {}
+        api.existing_titles.return_value = []
         api.add_all.side_effect = lambda db, batch: list(batch)
         api.rows_to_backfill.return_value = []
         api.rows_missing_applied_date.return_value = []
@@ -425,3 +425,15 @@ class TestSimplify(unittest.TestCase):
         self.assertEqual(listings[0].location, "Chicago, IL; NYC")
         self.assertTrue(listings[0].apply_url.startswith("https://job-boards.greenhouse.io/acme/jobs/1234567"))
         self.assertEqual(listings[0].source_added, "1d ago")
+
+    def test_a_reworded_simplify_copy_of_an_existing_row_is_skipped(self):
+        listing = make("https://careers.nintendo.com/?gh_jid=4469762009", source="simplify")
+        listing.company, listing.role = "Nintendo", "Software Engineer Intern - CPU Profiler (NTD)"
+        loose = {internship_tracker.sources.loose_title_key("Nintendo", "Intern - Software Engineer, CPU Profiler (NTD)")}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), {}, loose), [])
+
+    def test_a_simplify_row_with_a_different_title_is_kept(self):
+        listing = make("https://careers.nintendo.com/?gh_jid=4473550009", source="simplify")
+        listing.company, listing.role = "Nintendo", "Software Engineer Intern - Graphics"
+        loose = {internship_tracker.sources.loose_title_key("Nintendo", "Intern - Software Engineer, CPU Profiler (NTD)")}
+        self.assertEqual(internship_tracker.select_new([listing], set(), set(), {}, loose), [listing])

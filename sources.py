@@ -314,6 +314,27 @@ def title_fingerprint(company, role):
     return (company_key, role_key)
 
 
+# Words that differ between lists for the same posting: seasons, years, "Intern" placement.
+_LOOSE_FILLER = {"summer", "fall", "winter", "spring", "intern", "internship", "undergraduate",
+                 "undergrad", "student", "co", "op", "program", "ntd", "usa", "us"}
+
+
+def loose_title_key(company, role):
+    """Company plus the set of title words, minus season and filler words.
+
+    Only Simplify rows are matched on this. Its titles are reworded from the
+    employer's ("Software Engineer Intern - CPU Profiler" for "Intern - Software
+    Engineer, CPU Profiler (NTD)"), so title_fingerprint misses rows Notion
+    already holds under jobright links, and those would come back as Not applied.
+    """
+    company_key = _normalize(_COMPANY_SUFFIX.sub("", company))
+    words = re.findall(r"[a-z0-9]+", role.lower().replace("engineering", "engineer"))
+    words = frozenset(w for w in words if w not in _LOOSE_FILLER and not re.fullmatch(r"20\d\d", w))
+    if not company_key:
+        return None
+    return (company_key, words)
+
+
 def _title_copy(url_key, kept_url_keys):
     """True when a title match is the same posting seen through another site.
 

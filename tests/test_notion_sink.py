@@ -519,7 +519,7 @@ class TestBlankRow(unittest.TestCase):
         self.assertEqual(self._api().rows_missing_applied_date("db1"), [])
 
 
-class TestExistingTitleFingerprints(unittest.TestCase):
+class TestExistingTitles(unittest.TestCase):
     def test_maps_company_and_title_to_source(self):
         api = FakeNotion()
         api.responses = [{"results": [{"properties": {
@@ -529,8 +529,8 @@ class TestExistingTitleFingerprints(unittest.TestCase):
         }}, {"properties": {
             "Company": {"rich_text": []}, "Title": {"title": []}, "Source": {"select": None},
         }}], "has_more": False}]
-        self.assertEqual(api.existing_title_fingerprints("db1"),
-                         {("ramp", "softwareengineeringinternbackend"): "jobright"})
+        self.assertEqual(api.existing_titles("db1"),
+                         [("Ramp", "Software Engineering Intern, Backend", "jobright"), ("", "", "")])
 
 
 class TestTimeoutRetry(unittest.TestCase):
