@@ -119,6 +119,64 @@ def _age_to_note(cell):
 
 
 
+_SIMPLIFY_SECTIONS = ("Software Engineering Internship Roles", "Product Management Internship Roles")
+_HTML_ROW = re.compile(r"<tr>(.*?)</tr>", re.S)
+_HTML_CELL = re.compile(r"<td>(.*?)</td>", re.S)
+_DETAILS_SUMMARY = re.compile(r"<summary>.*?</summary>", re.S)
+
+
+def parse_simplify(markdown):
+    """SimplifyJobs/Summer2027-Internships, HTML tables under one h2 per field.
+
+    Only the software and product sections are read; data science, quant and
+    hardware rows would flood "Check: filtered out". A "↳" company cell repeats
+    the row above. Each Application cell holds the employer's link first and a
+    simplify.jobs redirector second, so the first anchor is the one kept.
+    """
+    sections = re.split(r"^## ", markdown, flags=re.M)
+    listings, filtered, total = [], 0, 0
+    for section in sections:
+        if not section.startswith(tuple(f"{icon} {name}" for name in _SIMPLIFY_SECTIONS for icon in ("💻", "📱"))):
+            continue
+        company = ""
+        for row in _HTML_ROW.findall(section):
+            cells = _HTML_CELL.findall(row)
+            if len(cells) < 4:
+                continue
+            total += 1
+            if md.strip_links(cells[0]) != "↳":
+                company = md.strip_links(cells[0]).replace("🔥", "").strip()
+            role = md.strip_links(cells[1])
+            url = md.extract_url(cells[3])
+            if md.CLOSED_FLAG in cells[3] or not url or "simplify.jobs" in url:
+                continue
+            # 🎓 marks roles that require an advanced degree; the list also carries a few new grad roles.
+            if "🎓" in role or re.search(r"new grad", role, re.I):
+                filtered += 1
+                continue
+            needs_review = False
+            if not config.matches_role_filter(role):
+                if not config.is_eligible(role):
+                    filtered += 1
+                    continue
+                needs_review = True
+            # Multi-city cells are a <details> list; drop the "N locations" summary.
+            cities = [md.strip_links(c) for c in re.split(r"</?br\s*/?>", _DETAILS_SUMMARY.sub("", cells[2]))]
+            cities = [c for c in cities if c]
+            if all(studios.NON_US.search(c) for c in cities):
+                continue
+            location = "; ".join(cities)
+            listings.append(md.Listing(
+                company=company, role=role, location=location, apply_url=url,
+                source_added=_age_to_note(cells[4]) if len(cells) > 4 else "",
+                source="simplify", needs_review=needs_review,
+            ))
+    if not total:
+        log.warning("simplify: found no rows; the README format may have changed")
+    log.info("simplify: %d kept, %d filtered out (of %d rows)", len(listings), filtered, total)
+    return listings
+
+
 _JOBRIGHT_ROW = re.compile(
     r"^\|\s*\*\*\[(?P<company>[^\]]+)\]\([^)]*\)\*\*\s*\|"
     r"\s*\*\*\[(?P<role>[^\]]+)\]\((?P<url>[^)]+)\)\*\*\s*\|\s*(?P<location>[^|]*)\|"
@@ -163,6 +221,11 @@ SOURCES = [
         "name": "speedyapply",
         "url": "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md",
         "parse": parse_speedyapply,
+    },
+    {
+        "name": "simplify",
+        "url": "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md",
+        "parse": parse_simplify,
     },
     {
         # Not a markdown list: queries game studio ATS APIs directly.

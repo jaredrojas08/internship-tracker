@@ -8,6 +8,7 @@ Aggregates Summer 2027 internship listings from multiple public sources, filters
 |---|---|---|
 | [sndsh404/summer-2027-internships](https://github.com/sndsh404/summer-2027-internships) | ~95 | markdown links; also publishes the Programs & Fellowships table (see Notion database below) |
 | [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) | ~121 | HTML anchors, three subsections, publishes salary |
+| [SimplifyJobs/Summer2027-Internships](https://github.com/SimplifyJobs/Summer2027-Internships) | ~370 | HTML tables; software and product sections only; keeps the employer link, never the simplify.jobs redirector |
 | Game studio ATS boards (`studios.py`) | ~20 in season | 106 boards over Greenhouse / Ashby / Lever / Workday / SmartRecruiters / Workable / BambooHR / Teamtailor / Avature |
 
 Each source gets its own parse function in `sources.py`; everything downstream is source-agnostic. To add one, write a parse function returning `Listing` objects and append it to `SOURCES`.

@@ -199,7 +199,7 @@ NON_TECH = re.compile(
 NON_US = re.compile(
     r"\b(india|china|shanghai|beijing|singapore|japan|tokyo|vietnam|korea|taiwan"
     r"|canada|montreal|toronto|vancouver|quebec|ontario|brazil|mexico|argentina"
-    r"|united kingdom|england|london|ireland|dublin|germany|berlin|france|paris"
+    r"|united kingdom|uk|england|scotland|wales|london|ireland|dublin|germany|berlin|france|paris"
     r"|spain|madrid|netherlands|amsterdam|sweden|stockholm|finland|helsinki"
     r"|poland|warsaw|australia|sydney|melbourne|new zealand|philippines|thailand"
     r"|indonesia|malaysia|israel|turkey|uae|dubai|portugal|lisbon|denmark"

@@ -368,3 +368,60 @@ class TestJobright(unittest.TestCase):
 def sources_fp(listing):
     import sources
     return sources.title_fingerprint(listing.company, listing.role)
+
+
+SIMPLIFY_MARKDOWN = """
+## 💻 Software Engineering Internship Roles
+<table><tbody>
+<tr>
+<td><strong><a href="https://simplify.jobs/c/Acme">Acme</a></strong></td>
+<td>Software Engineer Intern</td>
+<td><details><summary><strong>2 locations</strong></summary>Chicago, IL</br>NYC</details></td>
+<td><div align="center"><a href="https://job-boards.greenhouse.io/acme/jobs/1234567?utm_source=Simplify"><img alt="Apply"></a> <a href="https://simplify.jobs/p/abc"><img alt="Simplify"></a></div></td>
+<td>1d</td>
+</tr>
+<tr>
+<td>↳</td>
+<td>Backend Software Engineer Intern</td>
+<td>Toronto, ON, Canada</td>
+<td><div align="center"><a href="https://job-boards.greenhouse.io/acme/jobs/1234568"><img alt="Apply"></a></div></td>
+<td>2d</td>
+</tr>
+<tr>
+<td>↳</td>
+<td>Software Engineer Intern 🎓</td>
+<td>NYC</td>
+<td><div align="center"><a href="https://job-boards.greenhouse.io/acme/jobs/1234569"><img alt="Apply"></a></div></td>
+<td>2d</td>
+</tr>
+<tr>
+<td>Beta</td>
+<td>Frontend Software Engineer Intern</td>
+<td>SF</td>
+<td><div align="center">🔒</div></td>
+<td>3d</td>
+</tr>
+</tbody></table>
+
+## 🤖 Data Science, AI & Machine Learning Internship Roles
+<table><tbody>
+<tr>
+<td>Gamma</td>
+<td>Software Engineer Intern</td>
+<td>SF</td>
+<td><div align="center"><a href="https://jobs.lever.co/gamma/1"><img alt="Apply"></a></div></td>
+<td>0d</td>
+</tr>
+</tbody></table>
+"""
+
+
+class TestSimplify(unittest.TestCase):
+    def test_keeps_open_us_software_rows_with_the_employer_link(self):
+        import sources
+        listings = sources.parse_simplify(SIMPLIFY_MARKDOWN)
+        self.assertEqual([(l.company, l.role, l.source) for l in listings],
+                         [("Acme", "Software Engineer Intern", "simplify")])
+        self.assertEqual(listings[0].location, "Chicago, IL; NYC")
+        self.assertTrue(listings[0].apply_url.startswith("https://job-boards.greenhouse.io/acme/jobs/1234567"))
+        self.assertEqual(listings[0].source_added, "1d ago")
