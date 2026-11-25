@@ -49,8 +49,11 @@ APPLIED_OPTIONS = [
     {"name": "Rejected", "color": "red"},
     # Wrong field or out of reach. Kept as a row so the next run does not re-add it.
     {"name": "Skipped", "color": "gray"},
+    # Posting confirmed closed by the employer; handled like Skipped.
+    {"name": "Closed", "color": "brown"},
 ]
 SKIPPED = "Skipped"
+CLOSED = "Closed"
 
 SCHEMA = {
     P_TITLE: {"title": {}},
@@ -228,7 +231,7 @@ class Notion:
             page = self._call("POST", f"/databases/{database_id}/query", json=body)
             for row in page.get("results", []):
                 props = row.get("properties", {})
-                if (props.get(P_APPLIED, {}).get("select") or {}).get("name") == SKIPPED:
+                if (props.get(P_APPLIED, {}).get("select") or {}).get("name") in (SKIPPED, CLOSED):
                     continue
                 needs = {
                     "needs_skills": not _plain_text(props.get(P_SKILLS, {}).get("rich_text", [])),
@@ -283,7 +286,7 @@ class Notion:
                 total += 1
                 if applied == "Applied":
                     applied_count += 1
-                if applied == SKIPPED:
+                if applied in (SKIPPED, CLOSED):
                     continue
                 if not deadline and applied not in ("Applied", "Applying"):
                     continue

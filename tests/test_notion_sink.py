@@ -42,7 +42,7 @@ class TestSchema(unittest.TestCase):
             [(o["name"], o["color"]) for o in notion_sink.APPLIED_OPTIONS],
             [("Not applied", "default"), ("Applying", "yellow"), ("Applied", "blue"),
              ("Interviewing", "purple"), ("Offer", "green"), ("Rejected", "red"),
-             ("Skipped", "gray")],
+             ("Skipped", "gray"), ("Closed", "brown")],
         )
 
     def test_deadline_is_a_date_not_text(self):
